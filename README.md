@@ -1,6 +1,6 @@
-# 🧠 Messire — Assistant conversationnel intelligent avec RAG et gestion de notes
+# 🧠 SCIRAG — Assistant conversationnel intelligent avec RAG et gestion de notes
 
-**Messire** est une application locale (ou hybride) de chat intelligent basée sur les LLMs (Claude, GPT, etc.), enrichie par la recherche de documents via RAG (Retrieval-Augmented Generation) et l'intégration de notes personnelles activables.
+**SCIRAG** est une application locale (ou hybride) de chat intelligent basée sur les LLMs (Claude, GPT, etc.), enrichie par la recherche de documents via RAG (Retrieval-Augmented Generation) et l'intégration de notes personnelles activables.
 
 ---
 
@@ -32,7 +32,7 @@
 
 ## 📁 Structure du projet
 
-messire/
+SCIRAG/
 ├── api/ # Endpoints FastAPI
 ├── db/ # Schémas, modèles, migrations
 ├── rag/ # PDF reader, chunker, embedder
@@ -57,14 +57,14 @@ messire/
 ### 2. Cloner et installer
 
 ```bash
-git clone https://github.com/votre-org/messire.git
-cd messire
+git clone https://github.com/votre-org/SCIRAG.git
+cd SCIRAG
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 3. Configuration
 Créez un fichier .env à la racine :
-DATABASE_URL=postgresql://user:pass@localhost:5432/messire
+DATABASE_URL=postgresql://user:pass@localhost:5432/SCIRAG
 OPENAI_API_KEY=sk-...
 ANTHROPIC_API_KEY=...
 LM_STUDIO_URL=http://localhost:1234/v1
