@@ -1,0 +1,24 @@
+# Backend dependencies
+fastapi==0.109.0
+uvicorn==0.27.0
+pydantic==2.5.3
+sqlalchemy==2.0.25
+psycopg2-binary==2.9.9
+python-dotenv==1.0.0
+httpx==0.26.0
+
+# RAG dependencies
+chromadb==0.4.22
+pypdf==3.17.4
+sentence-transformers==2.2.2
+numpy==1.26.3
+
+# LLM integrations
+anthropic==0.18.1
+openai==1.9.0
+
+# Dev dependencies
+pytest==7.4.4
+pytest-asyncio==0.23.3
+black==23.12.1
+isort==5.13.2
