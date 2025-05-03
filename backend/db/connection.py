@@ -11,23 +11,19 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Database URL from environment
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://localhost:5432/scirag")
 
-# Create SQLAlchemy engine
 engine = create_engine(
     DATABASE_URL,
     poolclass=QueuePool,
     pool_size=5,
     max_overflow=10,
-    pool_recycle=3600,  # Recycle connections after 1 hour
+    pool_recycle=3600,
     echo=os.getenv("DATABASE_ECHO", "false").lower() == "true",
 )
 
-# Create session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# Base class for models
 Base = declarative_base()
 
 def get_db():
@@ -46,16 +42,13 @@ def init_db():
     Initialize database by creating all tables.
     Should be called on application startup.
     """
-    from db.models import (
-        LLMConfig,
-        Conversation,
-        Message,
-        RAGCorpus,
-        Document,
-        DocumentChunk,
-        Note,
-        NoteChunk,
-        ConversationContext,
+    # Import models to register them with Base
+    from backend.db.models import (
+        llm,
+        conversation,
+        rag,
+        note,
     )
-    
+    # Alternatively, import explicit classes if nécessaire
+
     Base.metadata.create_all(bind=engine)
