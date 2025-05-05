@@ -163,13 +163,13 @@ class FileManager:
         Returns:
             Sanitized filename
         """
+        import re
         # Keep only filename, not path
         filename = os.path.basename(filename)
         
-        # Replace problematic characters
-        for char in ['/', '\\', ':', '*', '?', '"', '<', '>', '|']:
-            filename = filename.replace(char, '_')
-            
+        # Replace problematic characters using regex
+        filename = re.sub(r'[/\\:*?"<>|]', '_', filename)
+        
         return filename
 
     def _ensure_unique_filename(self, file_path: str) -> str:
