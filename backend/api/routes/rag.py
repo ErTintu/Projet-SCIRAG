@@ -6,6 +6,8 @@ from typing import List, Optional
 import os
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query
 from sqlalchemy.orm import Session
+from rag.loader import PDFLoader
+from rag.file_manager import FileManager
 
 from api.deps import get_db_session, get_model_by_id
 from api.schemas import (
@@ -182,6 +184,8 @@ def list_documents(
     
     return pagination["items"]
 
+# Initialiser le FileManager
+file_manager = FileManager()
 
 @router.post("/corpus/{corpus_id}/upload", response_model=UploadDocumentResponse)
 async def upload_document(
@@ -194,9 +198,10 @@ async def upload_document(
     
     This endpoint:
     1. Validates the file is a PDF
-    2. Saves the file to disk
-    3. Creates a document record
-    4. Chunking and embedding will be done asynchronously
+    2. Saves the file to disk using FileManager
+    3. Extracts text from the PDF
+    4. Creates a document record
+    5. Prepares for chunking and embedding
     """
     # Ensure corpus exists
     db_corpus = get_model_by_id(
@@ -207,55 +212,131 @@ async def upload_document(
     )
     
     # Validate file type
-    if not file.filename.lower().endswith('.pdf'):
+    if not file.filename or not file.filename.lower().endswith('.pdf'):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Only PDF files are supported"
         )
     
-    # Create uploads directory if it doesn't exist
-    uploads_dir = os.path.join("uploads", "rag", str(corpus_id))
-    os.makedirs(uploads_dir, exist_ok=True)
-    
-    # Save file to disk
-    file_path = os.path.join(uploads_dir, file.filename)
-    
-    # Check if file already exists
-    if os.path.exists(file_path):
-        # Generate unique filename
-        base, ext = os.path.splitext(file.filename)
-        i = 1
-        while os.path.exists(file_path):
-            file_path = os.path.join(uploads_dir, f"{base}_{i}{ext}")
-            i += 1
-    
-    # Write file content
-    with open(file_path, "wb") as f:
-        file_content = await file.read()
-        f.write(file_content)
-    
-    # Create document record
-    document = Document(
-        rag_corpus_id=corpus_id,
-        filename=os.path.basename(file_path),
-        file_path=file_path,
-        file_type="pdf"
-    )
-    db.add(document)
-    db.commit()
-    db.refresh(document)
-    
-    # TODO: Queue document processing (chunking and embedding)
-    # This will be implemented with the RAG service
-    
-    return UploadDocumentResponse(
-        corpus_id=corpus_id,
-        document_id=document.id,
-        filename=document.filename,
-        success=True,
-        message="Document uploaded successfully. Processing will begin shortly."
-    )
+    try:
+        # Save file using FileManager
+        file_info = await file_manager.save_upload_file(file, corpus_id)
+        
+        # Validate PDF
+        if not PDFLoader.is_valid_pdf(file_info["file_path"]):
+            # If not valid, delete the file and raise error
+            file_manager.delete_file(file_info["file_path"])
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or corrupted PDF file"
+            )
+        
+        # Extract basic metadata
+        page_count = PDFLoader.count_pages(file_info["file_path"])
+        
+        # Create document record
+        document = Document(
+            rag_corpus_id=corpus_id,
+            filename=file_info["filename"],
+            file_path=file_info["file_path"],
+            file_type=file_info["file_type"]
+        )
+        db.add(document)
+        db.commit()
+        db.refresh(document)
+        
+        # TODO: Queue document processing (chunking and embedding)
+        # This will be implemented with the RAG service
+        
+        return UploadDocumentResponse(
+            corpus_id=corpus_id,
+            document_id=document.id,
+            filename=document.filename,
+            success=True,
+            message=f"Document uploaded successfully ({page_count} pages). Processing will begin shortly."
+        )
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        # Log and convert other exceptions
+        logger.error(f"Error uploading document: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to upload document: {str(e)}"
+        )
 
+# Route pour prévisualiser un document
+@router.get("/corpus/{corpus_id}/documents/{document_id}/preview")
+def preview_document(
+    corpus_id: int,
+    document_id: int,
+    page: int = Query(1, ge=1, description="Page number to preview"),
+    db: Session = Depends(get_db_session)
+):
+    """
+    Preview the text content of a specific page in a document.
+    """
+    # Ensure corpus exists
+    get_model_by_id(
+        db, 
+        RAGCorpus, 
+        corpus_id,
+        "RAG corpus not found"
+    )
+    
+    # Get document
+    document = db.query(Document).filter(
+        Document.id == document_id,
+        Document.rag_corpus_id == corpus_id
+    ).first()
+    
+    if not document:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Document with ID {document_id} not found in corpus {corpus_id}"
+        )
+    
+    try:
+        # Validate file exists
+        if not os.path.exists(document.file_path):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Document file not found: {document.filename}"
+            )
+            
+        # Extract text from the specific page
+        pages = PDFLoader.extract_text_by_pages(document.file_path)
+        
+        # Check if page exists
+        if page > len(pages):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Page {page} not found. Document has {len(pages)} pages."
+            )
+            
+        # Return preview data
+        return {
+            "document_id": document_id,
+            "filename": document.filename,
+            "total_pages": len(pages),
+            "current_page": page,
+            "page_content": pages[page-1] if page <= len(pages) else "",
+            "has_previous": page > 1,
+            "has_next": page < len(pages)
+        }
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        # Log and convert other exceptions
+        logger.error(f"Error previewing document: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to preview document: {str(e)}"
+        )
 
 @router.get("/corpus/{corpus_id}/documents/{document_id}", response_model=DocumentResponse)
 def get_document(
@@ -289,6 +370,7 @@ def get_document(
     return document
 
 
+# Fonction delete_document :
 @router.delete("/corpus/{corpus_id}/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_document(
     corpus_id: int,
@@ -318,13 +400,9 @@ def delete_document(
             detail=f"Document with ID {document_id} not found in corpus {corpus_id}"
         )
     
-    # Delete file from disk if it exists
+    # Delete file from disk using FileManager
     if os.path.exists(document.file_path):
-        try:
-            os.remove(document.file_path)
-        except Exception as e:
-            # Log error but continue
-            print(f"Error deleting file {document.file_path}: {e}")
+        file_manager.delete_file(document.file_path)
     
     # Delete document from database (chunks will cascade)
     db.delete(document)
