@@ -20,6 +20,9 @@ from api.schemas import (
 from db.models import Conversation, Message, LLMConfig, ConversationContext
 from db.utils import paginate
 
+from rag.service import get_rag_service
+from llm import router as llm_router
+
 router = APIRouter()
 
 
@@ -204,7 +207,7 @@ def create_message(
 
 
 @router.post("/{conversation_id}/send", response_model=SendMessageResponse)
-def send_message(
+async def send_message(
     conversation_id: int,
     request: SendMessageRequest,
     db: Session = Depends(get_db_session)
@@ -215,8 +218,9 @@ def send_message(
     This endpoint:
     1. Creates a user message
     2. Updates active RAG/note contexts if provided
-    3. Calls the LLM service with context
-    4. Creates an assistant message with the response
+    3. Retrieves relevant context using RAG
+    4. Calls the LLM service with context
+    5. Creates an assistant message with the response
     """
     # Ensure conversation exists
     db_conversation = get_model_by_id(
@@ -236,6 +240,18 @@ def send_message(
         )
         db_conversation.llm_config_id = llm_config.id
         db.commit()
+        db.refresh(db_conversation)
+    elif not db_conversation.llm_config_id:
+        # If no LLM config is set, use default or raise error
+        default_config = db.query(LLMConfig).first()
+        if not default_config:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No LLM configuration available. Please set a configuration."
+            )
+        db_conversation.llm_config_id = default_config.id
+        db.commit()
+        db.refresh(db_conversation)
     
     # Create user message
     user_message = Message(
@@ -247,28 +263,162 @@ def send_message(
     db.commit()
     db.refresh(user_message)
     
-    # TODO: Update RAG/note contexts if provided
-    # This will be implemented with the RAG service
+    # Update RAG/note contexts if provided
+    if request.active_rags is not None:
+        # First, deactivate all RAG contexts
+        for ctx in db.query(ConversationContext).filter(
+            ConversationContext.conversation_id == conversation_id,
+            ConversationContext.context_type == "rag"
+        ).all():
+            ctx.is_active = False
+        
+        # Then, activate the specified ones
+        for rag_id in request.active_rags:
+            context = db.query(ConversationContext).filter(
+                ConversationContext.conversation_id == conversation_id,
+                ConversationContext.context_type == "rag",
+                ConversationContext.context_id == rag_id
+            ).first()
+            
+            if context:
+                context.is_active = True
+            else:
+                # Create if doesn't exist
+                context = ConversationContext(
+                    conversation_id=conversation_id,
+                    context_type="rag",
+                    context_id=rag_id,
+                    is_active=True
+                )
+                db.add(context)
     
-    # TODO: Call LLM service with context
-    # This will be implemented with the LLM service
-    # For now, just create a dummy response
+    if request.active_notes is not None:
+        # First, deactivate all note contexts
+        for ctx in db.query(ConversationContext).filter(
+            ConversationContext.conversation_id == conversation_id,
+            ConversationContext.context_type == "note"
+        ).all():
+            ctx.is_active = False
+        
+        # Then, activate the specified ones
+        for note_id in request.active_notes:
+            context = db.query(ConversationContext).filter(
+                ConversationContext.conversation_id == conversation_id,
+                ConversationContext.context_type == "note",
+                ConversationContext.context_id == note_id
+            ).first()
+            
+            if context:
+                context.is_active = True
+            else:
+                # Create if doesn't exist
+                context = ConversationContext(
+                    conversation_id=conversation_id,
+                    context_type="note",
+                    context_id=note_id,
+                    is_active=True
+                )
+                db.add(context)
     
-    # Create assistant message (placeholder)
-    assistant_message = Message(
-        conversation_id=conversation_id,
-        role="assistant",
-        content="This is a placeholder response. LLM service integration will be implemented in a future PR."
-    )
-    db.add(assistant_message)
     db.commit()
-    db.refresh(assistant_message)
     
-    return SendMessageResponse(
-        user_message=user_message,
-        assistant_message=assistant_message,
-        sources=None  # Will be populated when RAG is implemented
+    # Get relevant context from RAG
+    rag_service = get_rag_service(db_session=db)
+    context_text, context_sources = rag_service.get_context_for_query(
+        query=request.content,
+        conversation_id=conversation_id
     )
+    
+    # Get LLM config
+    llm_config = get_model_by_id(
+        db, 
+        LLMConfig, 
+        db_conversation.llm_config_id,
+        "LLM configuration not found"
+    )
+    
+    # Build messages for history (last 10 messages)
+    history_messages = db.query(Message).filter(
+        Message.conversation_id == conversation_id
+    ).order_by(Message.created_at.desc()).limit(10).all()
+    history_messages.reverse()  # Oldest first
+    
+    # Build system prompt with context
+    system_prompt = "You are a helpful assistant that answers questions based on the provided context."
+    
+    if context_text:
+        system_prompt += "\n\nContext information:\n" + context_text
+    
+    try:
+        # Call LLM service
+        response = await llm_router.generate_response(
+            config=llm_config,
+            prompt=request.content,
+            system_prompt=system_prompt,
+            conversation_history=[(msg.role, msg.content) for msg in history_messages]
+        )
+        
+        # Create assistant message
+        assistant_message = Message(
+            conversation_id=conversation_id,
+            role="assistant",
+            content=response["content"]
+        )
+        db.add(assistant_message)
+        db.commit()
+        db.refresh(assistant_message)
+        
+        return SendMessageResponse(
+            user_message=user_message,
+            assistant_message=assistant_message,
+            sources=context_sources if context_sources else None
+        )
+        
+    except Exception as e:
+        # Log and convert exceptions
+        import logging
+        logging.error(f"Error generating response: {e}")
+        
+        # Create error response
+        error_message = f"Error generating response: {str(e)}"
+        assistant_message = Message(
+            conversation_id=conversation_id,
+            role="assistant",
+            content=f"I'm sorry, but there was an error generating a response. Technical details: {error_message}"
+        )
+        db.add(assistant_message)
+        db.commit()
+        db.refresh(assistant_message)
+        
+        return SendMessageResponse(
+            user_message=user_message,
+            assistant_message=assistant_message,
+            sources=None
+        )
+
+@router.get("/{conversation_id}/available_sources", response_model=dict)
+def get_available_sources(
+    conversation_id: int,
+    db: Session = Depends(get_db_session)
+):
+    """
+    Get available RAG sources (corpus and notes) for a conversation.
+    """
+    # Ensure conversation exists
+    get_model_by_id(
+        db, 
+        Conversation, 
+        conversation_id,
+        "Conversation not found"
+    )
+    
+    # Get RAG service
+    rag_service = get_rag_service(db_session=db)
+    
+    # Get available sources
+    sources = rag_service.get_available_sources(conversation_id)
+    
+    return sources
 
 
 @router.get("/{conversation_id}/context", response_model=List[dict])

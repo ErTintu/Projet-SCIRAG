@@ -1,0 +1,63 @@
+# Phase 4.3 : Service RAG pour SCIRAG
+
+## Description
+
+Cette Pull Request implémente le service RAG (Retrieval-Augmented Generation) pour l'application SCIRAG. Ce service est un composant critique qui permet d'enrichir les réponses des modèles de langage avec des connaissances spécifiques extraites des documents et notes de l'utilisateur.
+
+## Fonctionnalités implémentées
+
+- **Système de chunking intelligent** avec plusieurs stratégies :
+  - Par caractères avec détection intelligente des points de coupure
+  - Par tokens optimisé pour les modèles LLM
+  - Par paragraphes
+  - Par phrases (utilisant NLTK)
+
+- **Génération d'embeddings** :
+  - Utilisation de sentence-transformers
+  - Système de cache pour éviter de recalculer les embeddings
+  - Support pour différents modèles d'embeddings
+
+- **Stockage et recherche vectorielle** :
+  - Interface avec ChromaDB
+  - Recherche sémantique par similarité
+  - Support pour le filtrage par métadonnées
+
+- **Service RAG principal** :
+  - API unifiée pour l'indexation de documents
+  - File d'attente pour le traitement en arrière-plan
+  - Construction du contexte pour enrichir les prompts LLM
+
+- **Intégration avec les routes API existantes** :
+  - Traitement automatique des documents lors du téléchargement
+  - Traitement des notes pour la recherche sémantique
+  - Recherche globale à travers documents et notes
+  - Enrichissement des conversations avec des contextes pertinents
+
+## Tests
+
+Des tests unitaires ont été implémentés pour tous les composants:
+- Tests pour le système de chunking
+- Tests pour la génération d'embeddings
+- Tests pour le stockage vectoriel
+- Tests pour le service RAG global
+
+## Dépendances
+
+Cette PR ajoute les dépendances suivantes:
+- sentence-transformers
+- chromadb
+- tiktoken
+- nltk
+
+## Problèmes connus
+
+- Les tests de chunking sont parfois lents pour les textes volumineux
+- ChromaDB nécessite des ressources mémoire importantes pour les grands corpus
+
+## Prochaines étapes
+
+Après cette intégration, les futures améliorations pourraient inclure:
+- Optimisation des performances du chunking pour les grands documents
+- Ajout de stratégies de chunking spécialisées pour différents types de contenu
+- Support pour des modèles d'embedding personnalisés
+- Intégration d'une interface utilisateur pour visualiser les embeddings
