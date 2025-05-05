@@ -7,7 +7,7 @@ import pytest
 import tempfile
 from pathlib import Path
 import shutil
-from unittest.mock import patch, MagicMock, mock_open
+from unittest.mock import patch, MagicMock
 
 # Add the parent directory to Python path for imports to work
 import sys
@@ -17,75 +17,87 @@ from rag.loader import PDFLoader
 from rag.file_manager import FileManager
 
 
+def create_minimal_pdf(filepath):
+    """Create a minimal valid PDF file for testing."""
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+    with open(filepath, 'wb') as f:
+        f.write(b'%PDF-1.4\n%EOF\n')
+    return filepath
+
+
 class TestPDFLoader:
     """Tests for the PDFLoader class."""
     
-    @pytest.fixture
+    @pytest.fixture(scope="class")
     def sample_pdf_path(self):
-        """Create a sample PDF path for testing."""
-        return "tests/fixtures/sample.pdf"  # This is just a path, not a real file
+        """Create a temporary sample PDF file for testing."""
+        # Create temp directory
+        temp_dir = tempfile.mkdtemp()
+        # Create a minimal PDF file
+        pdf_path = os.path.join(temp_dir, "sample.pdf")
+        create_minimal_pdf(pdf_path)
+        
+        yield pdf_path
+        
+        # Cleanup
+        shutil.rmtree(temp_dir)
     
     def test_is_valid_pdf(self, sample_pdf_path):
-        """Test PDF validation with mocks."""
-        # Mock os.path.exists to return True
-        with patch('os.path.exists', return_value=True):
-            # Mock open to return a file-like object with PDF signature
-            with patch('builtins.open', mock_open(read_data=b'%PDF-1.4')):
-                # Mock PdfReader to return a reader with pages
-                with patch('pypdf.PdfReader') as mock_reader:
-                    mock_instance = mock_reader.return_value
-                    mock_instance.pages = [MagicMock()]
-                    
-                    # Test the method
-                    assert PDFLoader.is_valid_pdf(sample_pdf_path) is True
+        """Test PDF validation."""
+        # Test with real minimal PDF
+        assert PDFLoader.is_valid_pdf(sample_pdf_path) is True
+        
+        # Test with non-existent file
+        assert PDFLoader.is_valid_pdf("non_existent.pdf") is False
+        
+        # Test with non-PDF file
+        non_pdf_path = os.path.join(os.path.dirname(sample_pdf_path), "not_a_pdf.txt")
+        with open(non_pdf_path, 'w') as f:
+            f.write("This is not a PDF")
+        assert PDFLoader.is_valid_pdf(non_pdf_path) is False
     
     def test_extract_text_from_pdf(self, sample_pdf_path):
-        """Test text extraction from PDF with mocks."""
-        # Mock os.path.exists to return True
-        with patch('os.path.exists', return_value=True):
-            # Mock PdfReader creation and behavior
-            with patch('pypdf.PdfReader') as mock_reader_class:
-                # Setup the mock PdfReader instance
-                mock_reader = mock_reader_class.return_value
-                
-                # Mock a page with text
-                mock_page = MagicMock()
-                mock_page.extract_text.return_value = "Test content"
-                mock_reader.pages = [mock_page]
-                
-                # Mock metadata
-                class MockMetadata:
-                    title = "Test PDF"
-                    author = "Test Author"
-                    subject = None
-                    creator = None
-                    producer = None
-                    creation_date = None
-                
-                mock_reader.metadata = MockMetadata()
-                
-                # Call the function
-                result = PDFLoader.extract_text_from_pdf(sample_pdf_path)
-                
-                # Check results
-                assert result["file_name"] == os.path.basename(sample_pdf_path)
-                assert result["total_pages"] == 1
-                assert len(result["pages"]) == 1
-                assert result["pages"][0]["content"] == "Test content"
-                assert result["metadata"]["title"] == "Test PDF"
-                assert result["metadata"]["author"] == "Test Author"
+        """Test text extraction from PDF."""
+        # Use patch to mock PdfReader behavior
+        with patch('pypdf.PdfReader') as mock_reader_class:
+            # Set up mock reader
+            mock_reader = MagicMock()
+            mock_reader_class.return_value = mock_reader
+            
+            # Mock pages
+            mock_page = MagicMock()
+            mock_page.extract_text.return_value = "Test content"
+            mock_reader.pages = [mock_page]
+            
+            # Mock metadata
+            mock_reader.metadata = MagicMock(
+                title="Test PDF",
+                author="Test Author",
+                subject=None,
+                creator=None,
+                producer=None,
+                creation_date=None
+            )
+            
+            # Call the function
+            result = PDFLoader.extract_text_from_pdf(sample_pdf_path)
+            
+            # Check results
+            assert result["file_name"] == os.path.basename(sample_pdf_path)
+            assert result["total_pages"] == 1
+            assert len(result["pages"]) == 1
+            assert result["pages"][0]["content"] == "Test content"
+            assert result["metadata"]["title"] == "Test PDF"
+            assert result["metadata"]["author"] == "Test Author"
     
     def test_count_pages(self, sample_pdf_path):
-        """Test page counting with mocks."""
-        # Mock os.path.exists to return True
-        with patch('os.path.exists', return_value=True):
-            # Mock PdfReader to return a reader with 3 pages
-            with patch('pypdf.PdfReader') as mock_reader_class:
-                mock_reader = mock_reader_class.return_value
-                mock_reader.pages = [MagicMock(), MagicMock(), MagicMock()]
-                
-                # Call the function and check result
-                assert PDFLoader.count_pages(sample_pdf_path) == 3
+        """Test page counting."""
+        with patch('pypdf.PdfReader') as mock_reader_class:
+            mock_reader = MagicMock()
+            mock_reader.pages = [MagicMock(), MagicMock(), MagicMock()]  # 3 pages
+            mock_reader_class.return_value = mock_reader
+            
+            assert PDFLoader.count_pages(sample_pdf_path) == 3
 
 
 class TestFileManager:
@@ -113,13 +125,18 @@ class TestFileManager:
     
     def test_sanitize_filename(self):
         """Test filename sanitization."""
-        manager = FileManager()
+        # Create a modified FileManager to test just the sanitize function
+        class TestFileManager(FileManager):
+            def test_sanitize(self, filename):
+                return self._sanitize_filename(filename)
+        
+        manager = TestFileManager()
         
         # Test replacing invalid characters
-        assert manager._sanitize_filename("file/with:invalid*chars?.pdf") == "file_with_invalid_chars_.pdf"
+        assert manager.test_sanitize("file/with:invalid*chars?.pdf") == "file_with_invalid_chars_.pdf"
         
         # Test path stripping
-        assert manager._sanitize_filename("/path/to/file.pdf") == "file.pdf"
+        assert manager.test_sanitize("/path/to/file.pdf") == "file.pdf"
     
     def test_ensure_unique_filename(self, temp_dir):
         """Test filename uniqueness handling."""
