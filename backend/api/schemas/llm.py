@@ -24,6 +24,10 @@ class LLMConfigBase(BaseModel):
         if v.lower() not in allowed_providers:
             raise ValueError(f"Provider must be one of: {', '.join(allowed_providers)}")
         return v.lower()
+    
+    class Config:
+        """Pydantic model configuration."""
+        protected_namespaces = ()
 
 
 class LLMConfigCreate(LLMConfigBase):
@@ -64,6 +68,10 @@ class LLMConfigUpdate(BaseModel):
         if v is not None and v < 1:
             raise ValueError("Max tokens must be at least 1")
         return v
+    
+    class Config:
+        """Pydantic model configuration."""
+        protected_namespaces = ()
 
 
 class LLMConfigResponse(LLMConfigBase):
@@ -78,3 +86,4 @@ class LLMConfigResponse(LLMConfigBase):
     class Config:
         """Pydantic config."""
         from_attributes = True
+        protected_namespaces = ()
