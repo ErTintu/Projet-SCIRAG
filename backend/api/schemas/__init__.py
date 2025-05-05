@@ -8,7 +8,7 @@ from .conversation import (
     ConversationUpdate,
     MessageCreate,
     MessageResponse,
-    ConversationDetailResponse,  # Ajout de cette classe manquante
+    ConversationDetailResponse,
     SendMessageRequest,
     SendMessageResponse,
 )
@@ -24,21 +24,23 @@ from .rag import (
     RAGCorpusResponse,
     RAGCorpusUpdate,
     DocumentResponse,
-    RAGCorpusDetailResponse,  # Ajout de cette classe manquante
+    RAGCorpusDetailResponse,
+    UploadDocumentResponse,
 )
 
 from .note import (
     NoteCreate,
     NoteResponse,
     NoteUpdate,
-    NoteDetailResponse,  # Ajout de cette classe manquante
+    NoteDetailResponse,
+    NoteChunkResponse,  # Ajout de cette classe manquante
 )
 
 __all__ = [
     "ConversationCreate",
     "ConversationResponse",
     "ConversationUpdate",
-    "ConversationDetailResponse",  # Ajout ici aussi
+    "ConversationDetailResponse",
     "MessageCreate",
     "MessageResponse",
     "SendMessageRequest",
@@ -49,10 +51,12 @@ __all__ = [
     "RAGCorpusCreate",
     "RAGCorpusResponse",
     "RAGCorpusUpdate",
-    "RAGCorpusDetailResponse",  # Ajout ici aussi
+    "RAGCorpusDetailResponse",
     "DocumentResponse",
+    "UploadDocumentResponse",
     "NoteCreate",
     "NoteResponse",
     "NoteUpdate",
-    "NoteDetailResponse",  # Ajout ici aussi
+    "NoteDetailResponse",
+    "NoteChunkResponse",  # Ajout ici aussi
 ]
