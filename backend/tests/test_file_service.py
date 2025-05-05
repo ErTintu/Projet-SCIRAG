@@ -7,7 +7,7 @@ import pytest
 import tempfile
 from pathlib import Path
 import shutil
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, mock_open
 
 # Add the parent directory to Python path for imports to work
 import sys
@@ -22,35 +22,47 @@ class TestPDFLoader:
     
     @pytest.fixture
     def sample_pdf_path(self):
-        """Create a sample PDF file for testing."""
-        # For testing without a real PDF, we'll create a mock
-        # In a real environment, you'd want to use a real test PDF file
-        return "tests/fixtures/sample.pdf"  # This should be a path to a test PDF
+        """Create a sample PDF path for testing."""
+        return "tests/fixtures/sample.pdf"  # This is just a path, not a real file
     
     def test_is_valid_pdf(self, sample_pdf_path):
-        """Test PDF validation."""
+        """Test PDF validation with mocks."""
+        # Mock os.path.exists to return True
         with patch('os.path.exists', return_value=True):
-            with patch('builtins.open', MagicMock()):
+            # Mock open to return a file-like object with PDF signature
+            with patch('builtins.open', mock_open(read_data=b'%PDF-1.4')):
+                # Mock PdfReader to return a reader with pages
                 with patch('pypdf.PdfReader') as mock_reader:
-                    mock_reader.return_value.pages = [1]  # Mock one page
+                    mock_instance = mock_reader.return_value
+                    mock_instance.pages = [MagicMock()]
+                    
+                    # Test the method
                     assert PDFLoader.is_valid_pdf(sample_pdf_path) is True
     
     def test_extract_text_from_pdf(self, sample_pdf_path):
-        """Test text extraction from PDF."""
+        """Test text extraction from PDF with mocks."""
+        # Mock os.path.exists to return True
         with patch('os.path.exists', return_value=True):
-            with patch('pypdf.PdfReader') as mock_reader:
-                # Mock PDF reader
+            # Mock PdfReader creation and behavior
+            with patch('pypdf.PdfReader') as mock_reader_class:
+                # Setup the mock PdfReader instance
+                mock_reader = mock_reader_class.return_value
+                
+                # Mock a page with text
                 mock_page = MagicMock()
                 mock_page.extract_text.return_value = "Test content"
-                mock_reader.return_value.pages = [mock_page]
-                mock_reader.return_value.metadata = MagicMock(
-                    title="Test PDF",
-                    author="Test Author",
-                    subject=None,
-                    creator=None,
-                    producer=None,
-                    creation_date=None
-                )
+                mock_reader.pages = [mock_page]
+                
+                # Mock metadata
+                class MockMetadata:
+                    title = "Test PDF"
+                    author = "Test Author"
+                    subject = None
+                    creator = None
+                    producer = None
+                    creation_date = None
+                
+                mock_reader.metadata = MockMetadata()
                 
                 # Call the function
                 result = PDFLoader.extract_text_from_pdf(sample_pdf_path)
@@ -64,10 +76,15 @@ class TestPDFLoader:
                 assert result["metadata"]["author"] == "Test Author"
     
     def test_count_pages(self, sample_pdf_path):
-        """Test page counting."""
+        """Test page counting with mocks."""
+        # Mock os.path.exists to return True
         with patch('os.path.exists', return_value=True):
-            with patch('pypdf.PdfReader') as mock_reader:
-                mock_reader.return_value.pages = [1, 2, 3]  # Mock 3 pages
+            # Mock PdfReader to return a reader with 3 pages
+            with patch('pypdf.PdfReader') as mock_reader_class:
+                mock_reader = mock_reader_class.return_value
+                mock_reader.pages = [MagicMock(), MagicMock(), MagicMock()]
+                
+                # Call the function and check result
                 assert PDFLoader.count_pages(sample_pdf_path) == 3
 
 
