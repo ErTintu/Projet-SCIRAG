@@ -3,8 +3,7 @@ Database connection management for SCIRAG.
 """
 
 from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, declarative_base  # Mise à jour pour SQLAlchemy 2.0
 from sqlalchemy.pool import QueuePool
 import os
 from dotenv import load_dotenv
@@ -12,7 +11,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Database URL from environment
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://localhost:5432/scirag")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/scirag")
 
 # Create SQLAlchemy engine
 engine = create_engine(
@@ -27,7 +26,7 @@ engine = create_engine(
 # Create session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# Base class for models
+# Base class for models (mise à jour pour SQLAlchemy 2.0)
 Base = declarative_base()
 
 def get_db():
@@ -46,7 +45,8 @@ def init_db():
     Initialize database by creating all tables.
     Should be called on application startup.
     """
-    from db.models import (
+    # Import models to register them with Base
+    from .models import (
         LLMConfig,
         Conversation,
         Message,
