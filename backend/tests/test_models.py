@@ -1,16 +1,18 @@
 """
-Basic tests for database models.
+Basic tests for database models using SQLite in-memory database for testing.
 """
 
 import sys
 import os
 import pytest
 from datetime import datetime
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 # Add the backend directory to the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from db.connection import Base, SessionLocal, engine
+from db.connection import Base
 from db.models import (
     LLMConfig,
     Conversation,
@@ -23,12 +25,25 @@ from db.models import (
     ConversationContext
 )
 
+# Use SQLite in-memory database for testing
+TEST_DATABASE_URL = "sqlite:///:memory:"
+
 @pytest.fixture(scope="function")
 def db():
     """Create a fresh database for each test."""
+    # Create SQLite in-memory engine for testing
+    engine = create_engine(TEST_DATABASE_URL)
+    
+    # Create tables
     Base.metadata.create_all(bind=engine)
-    db = SessionLocal()
+    
+    # Create session
+    TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    db = TestSessionLocal()
+    
     yield db
+    
+    # Clean up
     db.close()
     Base.metadata.drop_all(bind=engine)
 
@@ -83,6 +98,9 @@ def test_create_conversation_with_messages(db):
     db.add(message2)
     db.commit()
     
+    # Reload conversation to get relationships
+    db.refresh(conversation)
+    
     # Verify
     assert len(conversation.messages) == 2
     assert conversation.messages[0].role == "user"
@@ -123,6 +141,10 @@ def test_create_rag_corpus_with_documents(db):
     db.add(chunk2)
     db.commit()
     
+    # Reload documents to get relationships
+    db.refresh(corpus)
+    db.refresh(document)
+    
     # Verify
     assert len(corpus.documents) == 1
     assert len(document.chunks) == 2
@@ -152,6 +174,9 @@ def test_create_note_with_chunks(db):
     db.add(chunk1)
     db.add(chunk2)
     db.commit()
+    
+    # Reload note to get relationships
+    db.refresh(note)
     
     # Verify
     assert len(note.chunks) == 2
@@ -186,6 +211,9 @@ def test_conversation_context(db):
     db.add(rag_context)
     db.add(note_context)
     db.commit()
+    
+    # Reload conversation to get relationships
+    db.refresh(conversation)
     
     # Verify
     assert len(conversation.context_items) == 2

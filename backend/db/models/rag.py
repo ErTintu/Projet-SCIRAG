@@ -2,11 +2,23 @@
 RAG-related models for SCIRAG.
 """
 
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey
+import os
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, LargeBinary
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from pgvector.sqlalchemy import Vector
 from ..connection import Base
+
+# Check if we're using SQLite (for testing) or PostgreSQL
+DB_URL = os.getenv("DATABASE_URL", "")
+IS_SQLITE = "sqlite" in DB_URL
+
+# Import pgvector only if we're not using SQLite
+if not IS_SQLITE:
+    try:
+        from pgvector.sqlalchemy import Vector
+    except ImportError:
+        # Fallback for environments where pgvector isn't installed
+        Vector = None
 
 
 class RAGCorpus(Base):
@@ -79,7 +91,15 @@ class DocumentChunk(Base):
     document_id = Column(Integer, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
     chunk_text = Column(Text, nullable=False)
     chunk_index = Column(Integer, nullable=False)
-    embedding = Column(Vector(384), nullable=True)  # Dimension for all-MiniLM-L6-v2
+    
+    # Use different column types based on database
+    if IS_SQLITE:
+        # For SQLite testing, store as binary
+        embedding = Column(LargeBinary, nullable=True)
+    else:
+        # For PostgreSQL with pgvector
+        embedding = Column(Vector(384), nullable=True)  # Dimension for all-MiniLM-L6-v2
+    
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Relationships
