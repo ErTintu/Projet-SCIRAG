@@ -9,8 +9,9 @@ from dotenv import load_dotenv
 import os
 import logging
 
-# Import routers (to be implemented)
-# from api.routes import conversations, rag, llm, notes
+# Import API router
+from api import api_router
+from db.connection import init_db
 
 # Load environment variables
 load_dotenv()
@@ -38,19 +39,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers (to be implemented)
-# app.include_router(conversations.router, prefix="/api/conversations", tags=["conversations"])
-# app.include_router(rag.router, prefix="/api/rag", tags=["rag"])
-# app.include_router(llm.router, prefix="/api/llm", tags=["llm"])
-# app.include_router(notes.router, prefix="/api/notes", tags=["notes"])
+# Include API router
+app.include_router(api_router, prefix="/api")
 
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup."""
     logger.info("Starting SCIRAG API...")
-    # Initialize database connection
-    # Initialize ChromaDB connection
-    # Other startup tasks
+    
+    # Initialize database
+    init_db()
+    logger.info("Database initialized")
+    
+    # TODO: Initialize ChromaDB connection
+    # TODO: Initialize other services
+    
+    logger.info("SCIRAG API started successfully")
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -62,7 +66,11 @@ async def shutdown_event():
 @app.get("/")
 async def root():
     """Root endpoint."""
-    return {"message": "Welcome to SCIRAG API", "version": "0.1.0"}
+    return {
+        "message": "Welcome to SCIRAG API", 
+        "version": "0.1.0",
+        "docs": "/docs",
+    }
 
 @app.get("/health")
 async def health_check():
