@@ -12,6 +12,7 @@ import logging
 # Import API router
 from api import api_router
 from db.connection import init_db
+from llm import router as llm_router
 
 # Load environment variables
 load_dotenv()
@@ -76,3 +77,12 @@ async def root():
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy"}
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize services on startup."""
+    logger.info("Starting SCIRAG API...")
+    
+    # Initialize LLM service
+    logger.info("Initializing LLM service...")
+    await llm_router.initialize()
