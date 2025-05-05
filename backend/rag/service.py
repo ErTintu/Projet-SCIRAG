@@ -14,6 +14,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import threading
 from uuid import uuid4
+import numpy as np
 
 from sqlalchemy.orm import Session
 

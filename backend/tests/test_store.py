@@ -214,9 +214,6 @@ class TestChromaStore:
         # A different collection name should give a different instance
         store3 = ChromaStore.get_instance(
             persist_directory=self.test_dir,
-
-        store3 = ChromaStore.get_instance(
-            persist_directory=self.test_dir,
             collection_name="different_collection"
         )
                 
