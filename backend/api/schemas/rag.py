@@ -64,12 +64,11 @@ class DocumentChunkResponse(DocumentChunkBase):
     id: int
     document_id: int
     created_at: datetime
-    has_embedding: bool = Field(False, description="Whether the chunk has an embedding")
-    
+    has_embedding: bool = Field(True, description="Whether the chunk has an embedding")
+   
     class Config:
         """Pydantic config."""
         from_attributes = True
-
 
 class RAGCorpusResponse(RAGCorpusBase):
     """Schema for RAG corpus response."""

@@ -9,6 +9,9 @@ from dotenv import load_dotenv
 import os
 import logging
 
+from rag.service import get_rag_service
+from db.connection import SessionLocal
+
 # Import API router
 from api import api_router
 from db.connection import init_db
@@ -52,8 +55,19 @@ async def startup_event():
     init_db()
     logger.info("Database initialized")
     
-    # TODO: Initialize ChromaDB connection
-    # TODO: Initialize other services
+    # Initialize LLM service
+    logger.info("Initializing LLM service...")
+    await llm_router.initialize()
+    
+    # Initialize RAG service with a temporary database session
+    logger.info("Initializing RAG service...")
+    db = SessionLocal()
+    try:
+        # Initialize RAG service with database session
+        get_rag_service(db_session=db)
+        logger.info("RAG service initialized")
+    finally:
+        db.close()
     
     logger.info("SCIRAG API started successfully")
 
@@ -61,8 +75,12 @@ async def startup_event():
 async def shutdown_event():
     """Cleanup on shutdown."""
     logger.info("Shutting down SCIRAG API...")
-    # Close database connections
-    # Other cleanup tasks
+    
+    # Get RAG service and close
+    rag_service = get_rag_service()
+    rag_service.close()
+    logger.info("RAG service closed")
+
 
 @app.get("/")
 async def root():

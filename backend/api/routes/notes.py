@@ -17,6 +17,9 @@ from api.schemas import (
 from db.models import Note, NoteChunk, ConversationContext
 from db.utils import paginate
 
+from rag.service import get_rag_service
+
+
 router = APIRouter()
 
 
@@ -49,7 +52,7 @@ async def create_note(
     
     This endpoint:
     1. Creates a note record
-    2. Chunking and embedding will be done automatically
+    2. Queues the note for processing (chunking and embedding)
     """
     # Create note record
     db_note = Note(**note.model_dump())
@@ -57,8 +60,9 @@ async def create_note(
     db.commit()
     db.refresh(db_note)
     
-    # TODO: Queue note processing (chunking and embedding)
-    # This will be implemented with the RAG service
+    # Queue note for processing
+    rag_service = get_rag_service(db_session=db)
+    task_id = rag_service.queue_note_processing(db_note.id)
     
     return db_note
 
@@ -79,7 +83,6 @@ def get_note(
     )
     
     return db_note
-
 
 @router.put("/{note_id}", response_model=NoteResponse)
 def update_note(
@@ -109,14 +112,11 @@ def update_note(
     db.commit()
     db.refresh(db_note)
     
-    # If content changed, delete existing chunks and re-process
+    # If content changed, trigger reprocessing
     if content_changed:
-        # Delete existing chunks
-        db.query(NoteChunk).filter(NoteChunk.note_id == note_id).delete()
-        db.commit()
-        
-        # TODO: Queue note processing (chunking and embedding)
-        # This will be implemented with the RAG service
+        # Queue note for processing
+        rag_service = get_rag_service(db_session=db)
+        rag_service.queue_note_processing(db_note.id)
     
     return db_note
 
@@ -187,6 +187,7 @@ def list_note_chunks(
 @router.post("/{note_id}/process", response_model=dict)
 def process_note(
     note_id: int,
+    force: bool = Query(False, description="Force reprocessing even if already processed"),
     db: Session = Depends(get_db_session)
 ):
     """
@@ -200,21 +201,33 @@ def process_note(
         "Note not found"
     )
     
-    # Delete existing chunks
-    db.query(NoteChunk).filter(NoteChunk.note_id == note_id).delete()
-    db.commit()
+    # Check if note already has chunks and force is not set
+    if not force:
+        chunk_count = db.query(NoteChunk).filter(
+            NoteChunk.note_id == note_id
+        ).count()
+        
+        if chunk_count > 0:
+            return {
+                "success": True,
+                "message": f"Note already processed with {chunk_count} chunks. Use force=true to reprocess.",
+                "note_id": note_id,
+                "chunk_count": chunk_count
+            }
     
-    # TODO: Queue note processing (chunking and embedding)
-    # This will be implemented with the RAG service
+    # Queue note for processing
+    rag_service = get_rag_service(db_session=db)
+    task_id = rag_service.queue_note_processing(note_id)
     
     return {
         "success": True,
         "message": "Note processing queued successfully",
-        "note_id": note_id
+        "note_id": note_id,
+        "task_id": task_id
     }
 
 
-@router.get("/search", response_model=List[dict])
+router.get("/search", response_model=List[dict])
 def search_notes(
     query: str = Query(..., min_length=1, description="Search query"),
     limit: int = Query(10, ge=1, le=100, description="Number of results to return"),
@@ -223,15 +236,38 @@ def search_notes(
     """
     Search across notes using semantic search.
     """
-    # This is a placeholder implementation
-    # In a real implementation, we would use ChromaDB to perform the search
+    # Build filter to only search in notes
+    filter_dict = {
+        "source_type": "note"
+    }
     
-    return [
-        {
-            "note_id": 1,
-            "note_title": "Sample Note",
-            "chunk_id": 1,
-            "chunk_text": "This is a sample chunk text that would be returned from the search.",
-            "similarity_score": 0.95,
-        }
-    ]
+    # Use RAG service for search
+    rag_service = get_rag_service(db_session=db)
+    search_results, _ = rag_service.search(
+        query=query,
+        limit=limit,
+        filter_dict=filter_dict
+    )
+    
+    # Convert results to response format
+    response = []
+    for result in search_results:
+        chunk = result.chunk
+        score = result.score
+        
+        # Get note info
+        note_title = None
+        if chunk.source_id:
+            note = db.query(Note).filter(Note.id == chunk.source_id).first()
+            if note:
+                note_title = note.title
+        
+        response.append({
+            "note_id": chunk.source_id,
+            "note_title": note_title,
+            "chunk_id": chunk.index,
+            "chunk_text": chunk.text,
+            "similarity_score": score,
+        })
+    
+    return response

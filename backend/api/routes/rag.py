@@ -4,10 +4,10 @@ API routes for RAG (Retrieval-Augmented Generation) corpus management.
 
 from typing import List, Optional
 import os
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query
 from sqlalchemy.orm import Session
-from rag.loader import PDFLoader
-from rag.file_manager import FileManager
 
 from api.deps import get_db_session, get_model_by_id
 from api.schemas import (
@@ -20,6 +20,12 @@ from api.schemas import (
 )
 from db.models import RAGCorpus, Document, DocumentChunk, ConversationContext
 from db.utils import paginate
+
+from rag.loader import PDFLoader
+from rag.file_manager import FileManager
+from rag.service import get_rag_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -199,9 +205,8 @@ async def upload_document(
     This endpoint:
     1. Validates the file is a PDF
     2. Saves the file to disk using FileManager
-    3. Extracts text from the PDF
-    4. Creates a document record
-    5. Prepares for chunking and embedding
+    3. Creates a document record
+    4. Queues document for processing (chunking, embedding, and indexing)
     """
     # Ensure corpus exists
     db_corpus = get_model_by_id(
@@ -245,15 +250,16 @@ async def upload_document(
         db.commit()
         db.refresh(document)
         
-        # TODO: Queue document processing (chunking and embedding)
-        # This will be implemented with the RAG service
+        # Queue document for processing
+        rag_service = get_rag_service(db_session=db)
+        task_id = rag_service.queue_document_processing(document.id)
         
         return UploadDocumentResponse(
             corpus_id=corpus_id,
             document_id=document.id,
             filename=document.filename,
             success=True,
-            message=f"Document uploaded successfully ({page_count} pages). Processing will begin shortly."
+            message=f"Document uploaded successfully ({page_count} pages). Processing started (task_id: {task_id})."
         )
         
     except HTTPException:
@@ -266,6 +272,7 @@ async def upload_document(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to upload document: {str(e)}"
         )
+
 
 # Route pour prévisualiser un document
 @router.get("/corpus/{corpus_id}/documents/{document_id}/preview")
@@ -415,10 +422,11 @@ def delete_document(
 def process_document(
     corpus_id: int,
     document_id: int,
+    force: bool = Query(False, description="Force reprocessing even if already processed"),
     db: Session = Depends(get_db_session)
 ):
     """
-    Manually trigger processing (chunking and embedding) for a document.
+    Manually trigger processing (chunking, embedding, and indexing) for a document.
     """
     # Ensure corpus exists
     get_model_by_id(
@@ -440,13 +448,29 @@ def process_document(
             detail=f"Document with ID {document_id} not found in corpus {corpus_id}"
         )
     
-    # TODO: Queue document processing (chunking and embedding)
-    # This will be implemented with the RAG service
+    # Check if document already has chunks and force is not set
+    if not force:
+        chunk_count = db.query(DocumentChunk).filter(
+            DocumentChunk.document_id == document_id
+        ).count()
+        
+        if chunk_count > 0:
+            return {
+                "success": True,
+                "message": f"Document already processed with {chunk_count} chunks. Use force=true to reprocess.",
+                "document_id": document_id,
+                "chunk_count": chunk_count
+            }
+    
+    # Queue document for processing
+    rag_service = get_rag_service(db_session=db)
+    task_id = rag_service.queue_document_processing(document_id)
     
     return {
         "success": True,
         "message": "Document processing queued successfully",
-        "document_id": document_id
+        "document_id": document_id,
+        "task_id": task_id
     }
 
 
@@ -460,17 +484,84 @@ def search_documents(
     """
     Search across RAG corpus using semantic search.
     """
-    # This is a placeholder implementation
-    # In a real implementation, we would use ChromaDB to perform the search
+    # Build filter dict if corpus_ids are provided
+    filter_dict = None
+    if corpus_ids:
+        # Get document IDs for these RAG corpus IDs
+        documents = db.query(Document).filter(
+            Document.rag_corpus_id.in_(corpus_ids)
+        ).all()
+        
+        document_ids = [doc.id for doc in documents]
+        
+        if document_ids:
+            filter_dict = {
+                "source_type": "document",
+                "source_id": document_ids
+            }
+        else:
+            # No documents found in the specified corpora
+            return []
     
-    return [
-        {
-            "corpus_id": 1,
-            "corpus_name": "Sample Corpus",
-            "document_id": 1,
-            "document_name": "sample.pdf",
-            "chunk_id": 1,
-            "chunk_text": "This is a sample chunk text that would be returned from the search.",
-            "similarity_score": 0.95,
-        }
-    ]
+    # Use RAG service for search
+    rag_service = get_rag_service(db_session=db)
+    search_results, _ = rag_service.search(
+        query=query,
+        limit=limit,
+        filter_dict=filter_dict
+    )
+    
+    # Convert results to response format
+    response = []
+    for result in search_results:
+        chunk = result.chunk
+        score = result.score
+        
+        # Get document info if source_type is document
+        document_name = None
+        corpus_name = None
+        if chunk.source_type == "document" and chunk.source_id:
+            document = db.query(Document).filter(Document.id == chunk.source_id).first()
+            if document:
+                document_name = document.filename
+                corpus = db.query(RAGCorpus).filter(RAGCorpus.id == document.rag_corpus_id).first()
+                if corpus:
+                    corpus_name = corpus.name
+        
+        response.append({
+            "corpus_id": corpus.id if corpus else None,
+            "corpus_name": corpus_name,
+            "document_id": chunk.source_id if chunk.source_type == "document" else None,
+            "document_name": document_name,
+            "note_id": chunk.source_id if chunk.source_type == "note" else None,
+            "chunk_id": chunk.index,
+            "chunk_text": chunk.text,
+            "similarity_score": score,
+        })
+    
+    return response
+
+@router.get("/process/status/{task_id}", response_model=dict)
+def get_processing_status(
+    task_id: str,
+    db: Session = Depends(get_db_session)
+):
+    """
+    Get the status of a document or note processing task.
+    """
+    rag_service = get_rag_service(db_session=db)
+    status = rag_service.get_processing_status(task_id)
+    
+    return status
+
+@router.get("/statistics", response_model=dict)
+def get_rag_statistics(
+    db: Session = Depends(get_db_session)
+):
+    """
+    Get statistics about the RAG system.
+    """
+    rag_service = get_rag_service(db_session=db)
+    stats = rag_service.get_statistics()
+    
+    return stats
