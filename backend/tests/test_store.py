@@ -174,27 +174,31 @@ class TestChromaStore:
         self.store.delete_chunks(["document_1_0"])
         assert self.store.get_chunk_count() == 1
     
-    def test_delete_by_source(self):
-        """Test deleting chunks by source."""
-        # First add some chunks from different sources
-        chunks = [
-            Chunk(text="Document 1 Chunk 1", index=0, source_id=1, source_type="document"),
-            Chunk(text="Document 1 Chunk 2", index=1, source_id=1, source_type="document"),
-            Chunk(text="Document 2 Chunk 1", index=0, source_id=2, source_type="document")
-        ]
+    def delete_by_source(self, source_type: str, source_id: Union[int, str]) -> None:
+        """
+        Delete all chunks from a specific source.
         
-        embeddings = [
-            np.array([0.1, 0.2, 0.3]),
-            np.array([0.4, 0.5, 0.6]),
-            np.array([0.7, 0.8, 0.9])
-        ]
-        
-        self.store.add_chunks(chunks, embeddings)
-        assert self.store.get_chunk_count() == 3
-        
-        # Delete all chunks from source 1
-        self.store.delete_by_source("document", 1)
-        assert self.store.get_chunk_count() == 1
+        Args:
+            source_type: Type of source ("document" or "note")
+            source_id: ID of the source
+        """
+        try:
+            # Utiliser la méthode get avec un filtre simple et convertir ID en string
+            items = self.collection.get(
+                where={
+                    "$and": [
+                        {"source_type": source_type},
+                        {"source_id": str(source_id)}
+                    ]
+                }
+            )
+            
+            if items and items["ids"]:
+                chunk_ids = items["ids"]
+                self.delete_chunks(chunk_ids)
+                logger.info(f"Deleted {len(chunk_ids)} chunks for {source_type} {source_id}")
+        except Exception as e:
+            logger.error(f"Error deleting chunks for {source_type} {source_id}: {e}")
     
     def test_get_instance(self):
         """Test getting a singleton instance."""

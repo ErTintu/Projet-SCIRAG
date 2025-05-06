@@ -258,7 +258,7 @@ class Embedder:
         else:
             texts_to_embed = texts
             texts_to_embed_indices = list(range(len(texts)))
-            embeddings = [None] * len(texts)
+            embeddings = [None] * len(texts)  # Initialiser avec la bonne taille
         
         # Load model if not loaded
         self.load_model()
@@ -276,6 +276,10 @@ class Embedder:
             
             if self.cache_enabled:
                 self.cache.set(texts_to_embed[i], self.model_name, embedding)
+            
+            if len(embeddings) <= idx:
+                # Si l'index est hors limites, ajoutez suffisamment d'éléments
+                embeddings.extend([None] * (idx - len(embeddings) + 1))
             
             embeddings[idx] = embedding
         

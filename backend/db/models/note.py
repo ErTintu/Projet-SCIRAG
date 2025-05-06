@@ -66,7 +66,7 @@ class NoteChunk(Base):
         embedding = Column(LargeBinary, nullable=True)
     else:
         # For PostgreSQL with pgvector
-        embedding = Column(Vector(384), nullable=True)  # Dimension for all-MiniLM-L6-v2
+        embedding = Column(Vector(384), nullable=True)  # Dimension for text-embedding-ada-002 or other 1536-dim model2
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     

@@ -1,63 +1,139 @@
-# Phase 4.3 : Service RAG pour SCIRAG
+# Documentation - Service RAG pour SCIRAG (Phase 4.3)
 
-## Description
+## Résumé
 
-Cette Pull Request implémente le service RAG (Retrieval-Augmented Generation) pour l'application SCIRAG. Ce service est un composant critique qui permet d'enrichir les réponses des modèles de langage avec des connaissances spécifiques extraites des documents et notes de l'utilisateur.
+Le service RAG (Retrieval-Augmented Generation) de SCIRAG permet d'enrichir les conversations avec des modèles de langage en y intégrant dynamiquement du contenu pertinent extrait de documents PDF et de notes utilisateurs. Cette fonctionnalité avancée transforme l'application d'un simple chat en un assistant intelligent capable de répondre à des questions à partir de sources de connaissances spécifiques.
 
-## Fonctionnalités implémentées
+## Architecture et composants
 
-- **Système de chunking intelligent** avec plusieurs stratégies :
-  - Par caractères avec détection intelligente des points de coupure
-  - Par tokens optimisé pour les modèles LLM
-  - Par paragraphes
-  - Par phrases (utilisant NLTK)
+Le service RAG s'articule autour de quatre modules interconnectés :
 
-- **Génération d'embeddings** :
-  - Utilisation de sentence-transformers
-  - Système de cache pour éviter de recalculer les embeddings
-  - Support pour différents modèles d'embeddings
+1. **Chunker** : Découpage intelligent des documents en fragments
+   - Stratégies multiples (caractères, tokens, paragraphes, phrases)
+   - Paramétrage flexible pour optimiser la qualité de recherche
 
-- **Stockage et recherche vectorielle** :
-  - Interface avec ChromaDB
-  - Recherche sémantique par similarité
-  - Support pour le filtrage par métadonnées
+2. **Embedder** : Vectorisation du texte
+   - Utilisation de sentence-transformers avec modèles pré-entraînés
+   - Système de cache pour optimiser les performances
 
-- **Service RAG principal** :
-  - API unifiée pour l'indexation de documents
-  - File d'attente pour le traitement en arrière-plan
-  - Construction du contexte pour enrichir les prompts LLM
+3. **Store** : Stockage et recherche vectorielle
+   - Interface avec ChromaDB pour l'indexation et la recherche
+   - Recherche sémantique par similarité cosinus
 
-- **Intégration avec les routes API existantes** :
-  - Traitement automatique des documents lors du téléchargement
-  - Traitement des notes pour la recherche sémantique
-  - Recherche globale à travers documents et notes
-  - Enrichissement des conversations avec des contextes pertinents
+4. **Service** : Orchestration et intégration
+   - File d'attente pour traitement asynchrone
+   - Construction de contexte pour enrichir les prompts LLM
 
-## Tests
+## Intégration et flux de données
 
-Des tests unitaires ont été implémentés pour tous les composants:
-- Tests pour le système de chunking
-- Tests pour la génération d'embeddings
-- Tests pour le stockage vectoriel
-- Tests pour le service RAG global
+1. **Documents/Notes → Chunking → Embeddings → ChromaDB**
+   - Traitement lors de l'upload ou de la création
+   - Indexation vectorielle automatique
 
-## Dépendances
+2. **Requête → Recherche vectorielle → Construction de contexte → LLM**
+   - Recherche par similarité sémantique
+   - Enrichissement des prompts avec des extraits pertinents
 
-Cette PR ajoute les dépendances suivantes:
-- sentence-transformers
-- chromadb
-- tiktoken
-- nltk
+## Points techniques importants
 
-## Problèmes connus
+### Configuration requise
 
-- Les tests de chunking sont parfois lents pour les textes volumineux
-- ChromaDB nécessite des ressources mémoire importantes pour les grands corpus
+```bash
+# Dépendances
+pip install sentence-transformers==2.2.2 chromadb==0.4.22 tiktoken==0.6.0 nltk==3.8.1
 
-## Prochaines étapes
+# Structure de répertoires
+mkdir -p backend/chroma_data
 
-Après cette intégration, les futures améliorations pourraient inclure:
-- Optimisation des performances du chunking pour les grands documents
-- Ajout de stratégies de chunking spécialisées pour différents types de contenu
-- Support pour des modèles d'embedding personnalisés
-- Intégration d'une interface utilisateur pour visualiser les embeddings
+# Variables d'environnement (.env)
+EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
+CHROMA_COLLECTION_NAME=scirag_docs
+```
+
+### Points d'attention pour les développeurs
+
+1. **Format des filtres ChromaDB**
+   - Utiliser la structure correcte pour les opérateurs `$and` et `$or`
+   - Convertir les IDs en string pour les requêtes
+
+2. **Performances de chunking**
+   - Garantir une progression minimale dans les algorithmes
+   - Éviter les boucles infinies avec des grands documents
+
+3. **Compatibilité LLM**
+   - Provider "local" adapté pour LM Studio
+   - Format des messages adapté (rôles "user"/"assistant" uniquement)
+
+4. **Gestion des sources mixtes**
+   - Traitement unifié des documents et notes
+   - Activation indépendante dans les conversations
+
+## Tests validés
+
+✅ **Chunking** : Découpage intelligent de documents  
+✅ **Embedding** : Génération vectorielle avec sentence-transformers  
+✅ **Stockage** : Indexation et recherche dans ChromaDB  
+✅ **Intégration LLM** : Communication avec modèles locaux (LM Studio)  
+✅ **Documents** : Upload, traitement et recherche PDF  
+✅ **Notes** : Création, traitement et recherche notes  
+✅ **Conversations** : Enrichissement avec contexte documentaire  
+
+## Problèmes connus et solutions
+
+1. **Erreur de filtre ChromaDB**
+   ```
+   Expected where to have exactly one operator, got {'source_type': 'document', 'source_id': '1'}
+   ```
+   **Solution** : Utiliser la structure `{"$and": [{"source_type": "document"}, {"source_id": "1"}]}`
+
+2. **Incompatibilité LM Studio**
+   ```
+   Error: Only user and assistant roles are supported!
+   ```
+   **Solution** : Intégrer le system prompt dans le message utilisateur
+
+3. **Performance du chunking**
+   **Solution** : Garantir une progression minimale à chaque itération
+
+## Exemples d'utilisation API
+
+### Création et activation de sources
+```http
+# Créer un corpus et uploader un document
+POST /api/rag/corpus
+POST /api/rag/corpus/{corpus_id}/upload
+
+# Créer une note
+POST /api/notes
+
+# Activer dans une conversation
+POST /api/conversations/{id}/context/rag/{corpus_id}?is_active=true
+POST /api/conversations/{id}/context/note/{note_id}?is_active=true
+```
+
+### Génération de réponses avec RAG
+```http
+POST /api/conversations/{id}/send
+{
+  "content": "Que dit le document au sujet de X?"
+}
+```
+
+## Évolutions recommandées
+
+1. **Robustesse**
+   - Gestion plus fine des erreurs ChromaDB
+   - Stratégies de reprise pour les traitements longs
+
+2. **Performance**
+   - Tests avec des grands corpus (100+ documents)
+   - Optimisation du cache d'embeddings
+
+3. **UX/UI**
+   - Visualisation des sources dans Streamlit
+   - Interface de gestion des corpus et notes
+   - Indicateurs de confiance sur les réponses
+
+---
+
+Ce service RAG constitue le cœur intelligent de SCIRAG, permettant des interactions conversationnelles ancrées dans la connaissance documentaire spécifique de l'utilisateur.

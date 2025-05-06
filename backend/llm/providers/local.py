@@ -36,7 +36,7 @@ class LocalProvider(LLMProvider):
 
         try:
             # Initialize HTTP client
-            self.client = httpx.AsyncClient(base_url=self.api_url, timeout=60.0)
+            self.client = httpx.AsyncClient(base_url=self.api_url, timeout=200.0)
             
             # Test connection
             response = await self.client.get("/models")
@@ -68,23 +68,18 @@ class LocalProvider(LLMProvider):
     ) -> Dict[str, Any]:
         """
         Generate a response using local LLM.
-
-        Args:
-            prompt: User message
-            system_prompt: System instructions
-            temperature: Sampling temperature (0.0 to 1.0)
-            max_tokens: Maximum tokens to generate
-            **kwargs: Additional parameters for the local model
-        
-        Returns:
-            Response dictionary with content, model, and usage information
         """
         if not self.client:
             raise RuntimeError("Local LLM provider not initialized or unavailable")
 
         try:
+            # Inclure le contexte RAG s'il est fourni
+            context = kwargs.get("context", "")
+            if context:
+                prompt = f"Contexte pertinent pour répondre à cette question:\n{context}\n\nQuestion: {prompt}"
+                logger.info(f"Added context to prompt (total length: {len(prompt)})")
+            
             # Build the payload
-            # LM Studio generally follows the OpenAI format
             payload = {
                 "model": kwargs.get("model", "local-model"),
                 "messages": [],
@@ -93,31 +88,52 @@ class LocalProvider(LLMProvider):
                 "stream": False
             }
             
-            # Add system message if provided
+            # Adapter pour LM Studio: inclure le system_prompt dans le premier message user
+            first_message = prompt
             if system_prompt:
-                payload["messages"].append({"role": "system", "content": system_prompt})
+                first_message = f"{system_prompt}\n\n{prompt}"
             
-            # Add user message
-            payload["messages"].append({"role": "user", "content": prompt})
+            # Ajouter message utilisateur
+            payload["messages"].append({"role": "user", "content": first_message})
+            
+            # Récupérer l'historique de conversation si disponible
+            conversation_history = kwargs.get("conversation_history", [])
+            if conversation_history:
+                # Ne garder que les messages avec des rôles supportés
+                filtered_history = []
+                for role, content in conversation_history:
+                    if role in ["user", "assistant"]:
+                        filtered_history.append({"role": role, "content": content})
+                
+                # Remplacer par notre premier message
+                if filtered_history:
+                    payload["messages"] = filtered_history + [{"role": "user", "content": first_message}]
+            
+            # Log payload for debugging (sensitive info redacted)
+            logger.info(f"Sending request to LM Studio with {len(payload['messages'])} messages")
             
             # Make the API call
             response = await self.client.post("/chat/completions", json=payload)
             
             if response.status_code != 200:
-                raise Exception(f"Error from LM Studio: {response.status_code} - {response.text}")
+                logger.error(f"Error from LM Studio: {response.status_code} - {response.text}")
+                return {
+                    "content": "Je n'ai pas pu générer une réponse. Service LLM temporairement indisponible.",
+                    "model": "local-model",
+                    "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+                }
                 
             response_data = response.json()
+            logger.info(f"Received response from LM Studio: {len(response_data.get('choices', [{}])[0].get('message', {}).get('content', ''))} chars")
             
             # Format the response
-            # LM Studio may not provide token counts in the same format as OpenAI
-            usage = response_data.get("usage", {})
             result = {
                 "content": response_data["choices"][0]["message"]["content"],
                 "model": "local-model",
                 "usage": {
-                    "prompt_tokens": usage.get("prompt_tokens", 0),
-                    "completion_tokens": usage.get("completion_tokens", 0),
-                    "total_tokens": usage.get("total_tokens", 0)
+                    "prompt_tokens": response_data.get("usage", {}).get("prompt_tokens", 0),
+                    "completion_tokens": response_data.get("usage", {}).get("completion_tokens", 0),
+                    "total_tokens": response_data.get("usage", {}).get("total_tokens", 0)
                 }
             }
             
@@ -125,8 +141,15 @@ class LocalProvider(LLMProvider):
             
         except Exception as e:
             logger.error(f"Error generating response from local LLM: {e}")
-            raise
-
+            import traceback
+            logger.error(traceback.format_exc())
+            
+            # Return a fallback response instead of raising
+            return {
+                "content": "Je n'ai pas pu générer une réponse en raison d'une erreur technique.",
+                "model": "local-model",
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+            }
     async def get_available_models(self) -> List[str]:
         """Get available local models."""
         return self.available_models

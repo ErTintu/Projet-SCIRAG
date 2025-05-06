@@ -232,11 +232,11 @@ class ChromaStore(VectorStore):
         )
         
         logger.info(f"Added {len(chunks)} chunks to ChromaDB collection {self.collection_name}")
-    
+        
     def search(self, 
-               query_embedding: np.ndarray, 
-               limit: int = 5,
-               filter_dict: Optional[Dict[str, Any]] = None) -> List[SearchResult]:
+            query_embedding: np.ndarray, 
+            limit: int = 5,
+            filter_dict: Optional[Dict[str, Any]] = None) -> List[SearchResult]:
         """
         Search for similar chunks.
         
@@ -250,60 +250,114 @@ class ChromaStore(VectorStore):
         """
         # Convert filter dict to proper ChromaDB format if provided
         where_filter = None
-        if filter_dict:
-            where_filter = {}
-            for key, value in filter_dict.items():
-                if key == "source_type" and isinstance(value, (list, tuple)):
-                    # Handle list of source types
-                    where_filter["$or"] = [{"source_type": t} for t in value]
-                elif key == "source_id" and isinstance(value, (list, tuple)):
-                    # Handle list of source ids
-                    where_filter["$or"] = [{"source_id": str(id)} for id in value]
-                else:
-                    where_filter[key] = str(value) if not isinstance(value, str) else value
         
-        # Perform search
-        results = self.collection.query(
-            query_embeddings=[query_embedding.tolist()],
-            n_results=limit,
-            where=where_filter
-        )
-        
-        # Process results
-        search_results = []
-        
-        if not results["ids"]:
+        try:
+            if filter_dict:
+                # Log filter dictionary for debugging
+                logger.debug(f"Original filter_dict: {filter_dict}")
+                
+                # Convert all filter values to strings for consistency
+                string_filter = {}
+                for key, value in filter_dict.items():
+                    if isinstance(value, (list, tuple)):
+                        string_filter[key] = [str(v) for v in value]
+                    else:
+                        string_filter[key] = str(value)
+                
+                # Handle different filter scenarios
+                if "source_type" in string_filter:
+                    source_type = string_filter["source_type"]
+                    
+                    # Case 1: source_type + single source_id
+                    if "source_id" in string_filter and not isinstance(string_filter["source_id"], list):
+                        where_filter = {
+                            "$and": [
+                                {"source_type": source_type},
+                                {"source_id": string_filter["source_id"]}
+                            ]
+                        }
+                    
+                    # Case 2: source_type + list of source_ids
+                    elif "source_id" in string_filter and isinstance(string_filter["source_id"], list):
+                        source_ids = string_filter["source_id"]
+                        
+                        # Use $or with multiple $and conditions for multiple IDs
+                        or_conditions = []
+                        for source_id in source_ids:
+                            or_conditions.append({
+                                "$and": [
+                                    {"source_type": source_type},
+                                    {"source_id": source_id}
+                                ]
+                            })
+                        
+                        where_filter = {"$or": or_conditions}
+                    
+                    # Case 3: source_type only
+                    else:
+                        where_filter = {"source_type": source_type}
+                
+                # Case 4: Other direct key-value filters
+                elif string_filter:
+                    # For simple filters, just use the key-value pairs directly
+                    where_filter = string_filter
+                
+                logger.debug(f"Constructed ChromaDB where_filter: {where_filter}")
+        except Exception as e:
+            logger.error(f"Error constructing ChromaDB filter: {e}")
+            # Return empty list on error, not None
             return []
         
-        for i, doc_id in enumerate(results["ids"][0]):
-            metadata = results["metadatas"][0][i]
-            document = results["documents"][0][i]
-            distance = results["distances"][0][i] if "distances" in results else 0.0
-            
-            # Convert similarity score (higher is better)
-            # ChromaDB returns distances (lower is better)
-            score = 1.0 - distance
-            
-            # Create chunk
-            chunk = Chunk(
-                text=document,
-                index=metadata.get("chunk_index", 0),
-                source_id=metadata.get("source_id"),
-                source_type=metadata.get("source_type"),
-                metadata={k: v for k, v in metadata.items() 
-                         if k not in ("source_id", "source_type", "chunk_index")}
+        # Perform search with the constructed filter
+        try:
+            results = self.collection.query(
+                query_embeddings=[query_embedding.tolist()],
+                n_results=limit,
+                where=where_filter
             )
             
-            # Create search result
-            search_result = SearchResult(
-                chunk=chunk,
-                score=score,
-                metadata={"id": doc_id}
-            )
+            # Process results
+            search_results = []
             
-            search_results.append(search_result)
-        
-        return search_results
+            if not results["ids"] or not results["ids"][0]:
+                logger.warning("ChromaDB returned empty results")
+                return []
+            
+            for i, doc_id in enumerate(results["ids"][0]):
+                metadata = results["metadatas"][0][i]
+                document = results["documents"][0][i]
+                distance = results["distances"][0][i] if "distances" in results else 0.0
+                
+                # Convert similarity score (higher is better)
+                # ChromaDB returns distances (lower is better)
+                score = 1.0 - distance
+                
+                # Create chunk
+                chunk = Chunk(
+                    text=document,
+                    index=metadata.get("chunk_index", 0),
+                    source_id=metadata.get("source_id"),
+                    source_type=metadata.get("source_type"),
+                    metadata={k: v for k, v in metadata.items() 
+                            if k not in ("source_id", "source_type", "chunk_index")}
+                )
+                
+                # Create search result
+                search_result = SearchResult(
+                    chunk=chunk,
+                    score=score,
+                    metadata={"id": doc_id}
+                )
+                
+                search_results.append(search_result)
+            
+            return search_results
+        except Exception as e:
+            logger.error(f"ChromaDB search error: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            # Return empty results on error
+            return []
     
     def get_chunk_count(self) -> int:
         """Get the total number of chunks in the store."""
@@ -330,19 +384,33 @@ class ChromaStore(VectorStore):
             source_type: Type of source ("document" or "note")
             source_id: ID of the source
         """
-        # Find IDs to delete
-        results = self.collection.query(
-            query_embeddings=None,
-            where={
-                "source_type": source_type,
-                "source_id": str(source_id)
+        try:
+            # Ensure source_id is a string
+            str_source_id = str(source_id)
+            
+            # Construct filter in proper ChromaDB format
+            where_filter = {
+                "$and": [
+                    {"source_type": source_type},
+                    {"source_id": str_source_id}
+                ]
             }
-        )
+            
+            # Log filter for debugging
+            logger.debug(f"Delete filter: {where_filter}")
+            
+            # Get items matching the filter
+            items = self.collection.get(where=where_filter)
+            
+            if items and items["ids"]:
+                chunk_ids = items["ids"]
+                self.delete_chunks(chunk_ids)
+                logger.info(f"Deleted {len(chunk_ids)} chunks for {source_type} {source_id}")
+            else:
+                logger.info(f"No chunks found for {source_type} {source_id}")
+        except Exception as e:
+            logger.error(f"Error deleting chunks for {source_type} {source_id}: {e}")
         
-        if results["ids"] and results["ids"][0]:
-            chunk_ids = results["ids"][0]
-            self.delete_chunks(chunk_ids)
-    
     def close(self) -> None:
         """Close the ChromaDB connection."""
         # ChromaDB handles this automatically, but we keep the method

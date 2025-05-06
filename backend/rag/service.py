@@ -310,21 +310,12 @@ class RAGService:
         self.db_session = db_session
     
     def process_text(self, 
-                     text: str, 
-                     source_id: Optional[Union[int, str]], 
-                     source_type: Optional[str],
-                     metadata: Optional[Dict[str, Any]] = None) -> List[Tuple[Chunk, np.ndarray]]:
+                    text: str, 
+                    source_id: Optional[Union[int, str]], 
+                    source_type: Optional[str],
+                    metadata: Optional[Dict[str, Any]] = None) -> List[Tuple[Chunk, np.ndarray]]:
         """
         Process text into chunks and embeddings.
-        
-        Args:
-            text: Text to process
-            source_id: ID of the source document or note
-            source_type: Type of source ("document" or "note")
-            metadata: Additional metadata about the source
-            
-        Returns:
-            List of tuples containing (chunk, embedding)
         """
         # Chunk the text
         chunks = self.chunker.chunk_text(
@@ -340,18 +331,29 @@ class RAGService:
         
         logger.info(f"Generated {len(chunks)} chunks for {source_type} {source_id}")
         
-        # Generate embeddings
-        chunk_embeddings = self.embedder.embed_chunks(chunks)
-        
-        return chunk_embeddings
+        try:
+            # Generate embeddings
+            chunk_embeddings = self.embedder.embed_chunks(chunks)
+            logger.info(f"Generated {len(chunk_embeddings)} embeddings for {source_type} {source_id}")
+            
+            # Vérifiez que les embeddings ne sont pas None
+            valid_embeddings = []
+            for chunk, embedding in chunk_embeddings:
+                if embedding is not None and len(embedding) > 0:
+                    valid_embeddings.append((chunk, embedding))
+                else:
+                    logger.warning(f"Empty or None embedding for chunk: {chunk.text[:50]}...")
+            
+            logger.info(f"Valid embeddings: {len(valid_embeddings)}/{len(chunk_embeddings)}")
+            return valid_embeddings
+        except Exception as e:
+            logger.error(f"Error generating embeddings: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return []
     
     def process_document(self, document_id: int) -> None:
-        """
-        Process a document: extract text, chunk, embed, and store.
-        
-        Args:
-            document_id: ID of the document to process
-        """
+        """Process a document: extract text, chunk, embed, and store."""
         if not self.db_session:
             raise ValueError("Database session not set")
         
@@ -390,12 +392,18 @@ class RAGService:
             ).delete()
             
             for i, (chunk, embedding) in enumerate(chunk_embeddings):
+                # Convertir l'embedding en format approprié si nécessaire
+                embedding_binary = embedding.tobytes() if isinstance(embedding, np.ndarray) else embedding
+                
                 db_chunk = DocumentChunk(
                     document_id=document_id,
                     chunk_text=chunk.text,
                     chunk_index=i,
-                    embedding=embedding
+                    embedding=embedding_binary
                 )
+                # Important: Définir explicitement has_embedding à True
+                # Ceci corrige le problème
+                db_chunk.has_embedding = True
                 self.db_session.add(db_chunk)
             
             self.db_session.commit()
@@ -406,24 +414,21 @@ class RAGService:
             logger.error(f"Error processing document {document_id}: {e}")
             self.db_session.rollback()
             raise
-    
+
     def process_note(self, note_id: int) -> None:
-        """
-        Process a note: chunk, embed, and store.
-        
-        Args:
-            note_id: ID of the note to process
-        """
+        """Process a note: chunk, embed, and store."""
         if not self.db_session:
             raise ValueError("Database session not set")
         
         # Get note from database
+        logger.info(f"Processing note {note_id}")
         note = self.db_session.query(Note).filter(Note.id == note_id).first()
         if not note:
             raise ValueError(f"Note {note_id} not found")
         
         try:
             # Process the text
+            logger.info(f"Processing note {note_id}: {note.title}")
             chunk_embeddings = self.process_text(
                 text=note.content,
                 source_id=note_id,
@@ -432,26 +437,36 @@ class RAGService:
                     "title": note.title
                 }
             )
+            logger.info(f"Generated {len(chunk_embeddings)} chunk-embedding pairs")
             
             # Delete any existing chunks for this note
             self.vector_store.delete_by_source("note", note_id)
             
             # Add to vector store
             chunks, embeddings = zip(*chunk_embeddings) if chunk_embeddings else ([], [])
+            logger.info(f"Adding {len(chunks)} chunks to vector store")
             self.vector_store.add_chunks(list(chunks), list(embeddings))
             
             # Store chunks in database
+            logger.info(f"Deleting existing chunks for note {note_id}")
             self.db_session.query(NoteChunk).filter(
                 NoteChunk.note_id == note_id
             ).delete()
             
+            logger.info(f"Adding {len(chunk_embeddings)} chunks to database")
             for i, (chunk, embedding) in enumerate(chunk_embeddings):
+                # Convertir l'embedding en format approprié si nécessaire
+                embedding_binary = embedding.tobytes() if isinstance(embedding, np.ndarray) else embedding
+                
                 db_chunk = NoteChunk(
                     note_id=note_id,
                     chunk_text=chunk.text,
                     chunk_index=i,
-                    embedding=embedding
+                    embedding=embedding_binary
                 )
+                # Important: Définir explicitement has_embedding à True
+                # Ceci corrige le problème
+                db_chunk.has_embedding = True
                 self.db_session.add(db_chunk)
             
             self.db_session.commit()
@@ -460,9 +475,11 @@ class RAGService:
             
         except Exception as e:
             logger.error(f"Error processing note {note_id}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             self.db_session.rollback()
             raise
-    
+
     def queue_document_processing(self, document_id: int) -> str:
         """
         Queue a document for background processing.
@@ -504,9 +521,9 @@ class RAGService:
         return task.to_dict()
     
     def search(self, 
-               query: str, 
-               limit: int = 5,
-               filter_dict: Optional[Dict[str, Any]] = None) -> Tuple[List[SearchResult], np.ndarray]:
+            query: str, 
+            limit: int = 5,
+            filter_dict: Optional[Dict[str, Any]] = None) -> Tuple[List[SearchResult], np.ndarray]:
         """
         Search for relevant chunks.
         
@@ -521,91 +538,122 @@ class RAGService:
         # Generate query embedding
         query_embedding = self.embedder.embed_text(query)
         
-        # Search vector store
-        search_results = self.vector_store.search(
-            query_embedding=query_embedding,
-            limit=limit,
-            filter_dict=filter_dict
-        )
-        
-        return search_results, query_embedding
+        try:
+            # Search vector store
+            search_results = self.vector_store.search(
+                query_embedding=query_embedding,
+                limit=limit,
+                filter_dict=filter_dict
+            )
+            
+            # Assurez-vous que search_results est toujours une liste, même si None est renvoyé
+            if search_results is None:
+                logger.warning("Vector store search returned None, using empty list instead")
+                search_results = []
+                
+            return search_results, query_embedding
+        except Exception as e:
+            logger.error(f"Error in search: {e}")
+            # En cas d'erreur, retourner une liste vide
+            return [], query_embedding
     
     def get_context_for_query(self, 
-                              query: str,
-                              conversation_id: Optional[int] = None,
-                              limit: int = 5) -> Tuple[str, List[Dict[str, Any]]]:
-        """
-        Get context for a query based on conversation settings.
-        
-        Args:
-            query: Query text
-            conversation_id: ID of the conversation (for retrieving active RAGs/notes)
-            limit: Maximum number of results per source
-            
-        Returns:
-            Tuple of (context_text, sources)
-        """
+                            query: str,
+                            conversation_id: Optional[int] = None,
+                            limit: int = 5) -> Tuple[str, List[Dict[str, Any]]]:
+        """Get context for a query based on conversation settings."""
         if not self.db_session:
             raise ValueError("Database session not set")
         
-        filter_dict = None
+        logger.info(f"Getting context for query: '{query}' (conversation_id={conversation_id})")
         
-        # If conversation_id is provided, get active RAGs and notes
+        all_results = []
+        active_contexts = []
+        
+        # Si conversation_id est fourni, récupérer les contextes actifs
         if conversation_id:
-            contexts = self.db_session.query(ConversationContext).filter(
+            active_contexts = self.db_session.query(ConversationContext).filter(
                 ConversationContext.conversation_id == conversation_id,
                 ConversationContext.is_active == True
             ).all()
             
-            if contexts:
-                # Group by context_type
-                rag_ids = []
-                note_ids = []
-                
-                for ctx in contexts:
-                    if ctx.context_type == "rag":
-                        rag_ids.append(ctx.context_id)
-                    elif ctx.context_type == "note":
-                        note_ids.append(ctx.context_id)
-                
-                # Build filter dict
-                filter_conditions = []
-                
-                if rag_ids:
-                    # Get document IDs for these RAG corpus IDs
+            logger.info(f"Found {len(active_contexts)} active contexts")
+        
+        if active_contexts:
+            # Séparer les RAGs et les notes
+            rag_ids = []
+            note_ids = []
+            
+            for ctx in active_contexts:
+                if ctx.context_type == "rag":
+                    rag_ids.append(ctx.context_id)
+                elif ctx.context_type == "note":
+                    note_ids.append(ctx.context_id)
+            
+            logger.info(f"Active RAG IDs: {rag_ids}")
+            logger.info(f"Active Note IDs: {note_ids}")
+            
+            # Traiter séparément chaque note active
+            for note_id in note_ids:
+                try:
+                    # Recherche exacte avec un filtre spécifique
+                    note_results, _ = self.search(
+                        query=query,
+                        limit=limit,
+                        filter_dict={
+                            "source_type": "note",
+                            "source_id": str(note_id)
+                        }
+                    )
+                    
+                    if note_results:
+                        logger.info(f"Found {len(note_results)} results for note {note_id}")
+                        all_results.extend(note_results)
+                except Exception as e:
+                    logger.error(f"Error searching note {note_id}: {e}")
+            
+            # Traiter séparément chaque RAG actif
+            for rag_id in rag_ids:
+                try:
+                    # Récupérer tous les documents du corpus
                     documents = self.db_session.query(Document).filter(
-                        Document.rag_corpus_id.in_(rag_ids)
+                        Document.rag_corpus_id == rag_id
                     ).all()
                     
-                    document_ids = [doc.id for doc in documents]
-                    
-                    if document_ids:
-                        filter_conditions.append({
-                            "source_type": "document",
-                            "source_id": document_ids
-                        })
-                
-                if note_ids:
-                    filter_conditions.append({
-                        "source_type": "note",
-                        "source_id": note_ids
-                    })
-                
-                if filter_conditions:
-                    filter_dict = {"$or": filter_conditions}
+                    for doc in documents:
+                        # Recherche exacte avec un filtre spécifique
+                        doc_results, _ = self.search(
+                            query=query,
+                            limit=limit // len(documents) if documents else limit,
+                            filter_dict={
+                                "source_type": "document",
+                                "source_id": str(doc.id)
+                            }
+                        )
+                        
+                        if doc_results:
+                            logger.info(f"Found {len(doc_results)} results for document {doc.id}")
+                            all_results.extend(doc_results)
+                except Exception as e:
+                    logger.error(f"Error searching RAG {rag_id}: {e}")
         
-        # Search for relevant chunks
-        search_results, _ = self.search(
-            query=query,
-            limit=limit,
-            filter_dict=filter_dict
-        )
+        else:
+            logger.info("No active contexts found, performing general search")
+            # Recherche générale sans filtre
+            general_results, _ = self.search(query=query, limit=limit)
+            all_results = general_results
         
-# Build context from search results
+        # Trier les résultats par score et limiter
+        all_results.sort(key=lambda x: x.score, reverse=True)
+        search_results = all_results[:limit]
+        
+        # Construire le contexte
         context_text, sources = self.context_builder.build_context(
             search_results=search_results,
             query=query
         )
+        
+        logger.info(f"Built context from {len(search_results)} results")
         
         return context_text, sources
     

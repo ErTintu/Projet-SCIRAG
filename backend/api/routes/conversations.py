@@ -324,10 +324,20 @@ async def send_message(
     
     # Get relevant context from RAG
     rag_service = get_rag_service(db_session=db)
-    context_text, context_sources = rag_service.get_context_for_query(
-        query=request.content,
-        conversation_id=conversation_id
-    )
+    context_text = ""
+    context_sources = None
+    
+    try:
+        context_text, context_sources = rag_service.get_context_for_query(
+            query=request.content,
+            conversation_id=conversation_id
+        )
+        import logging
+        logging.info(f"Retrieved context: {len(context_text)} chars")
+    except Exception as e:
+        import logging
+        logging.error(f"Error retrieving context: {e}")
+        # Continue without context if there's an error
     
     # Get LLM config
     llm_config = get_model_by_id(
@@ -346,14 +356,19 @@ async def send_message(
     # Build system prompt with context
     system_prompt = "You are a helpful assistant that answers questions based on the provided context."
     
+    # Simplifier l'intégration du contexte pour éviter les problèmes
+    prompt_with_context = request.content
     if context_text:
-        system_prompt += "\n\nContext information:\n" + context_text
+        prompt_with_context = f"Contexte pertinent pour répondre à cette question:\n{context_text}\n\nQuestion: {request.content}"
+        import logging
+        logging.info(f"Added context to prompt (total length: {len(prompt_with_context)})")
     
     try:
-        # Call LLM service
+        # Call LLM service with modified approach
         response = await llm_router.generate_response(
             config=llm_config,
-            prompt=request.content,
+            # Utiliser le prompt avec contexte incorporé au lieu de séparer
+            prompt=prompt_with_context,
             system_prompt=system_prompt,
             conversation_history=[(msg.role, msg.content) for msg in history_messages]
         )
@@ -362,7 +377,7 @@ async def send_message(
         assistant_message = Message(
             conversation_id=conversation_id,
             role="assistant",
-            content=response["content"]
+            content=response.get("content", "Je n'ai pas pu générer une réponse valide.")
         )
         db.add(assistant_message)
         db.commit()
@@ -378,13 +393,19 @@ async def send_message(
         # Log and convert exceptions
         import logging
         logging.error(f"Error generating response: {e}")
+        import traceback
+        logging.error(traceback.format_exc())
         
-        # Create error response
-        error_message = f"Error generating response: {str(e)}"
+        # Fallback: utiliser directement le contexte comme base de réponse si disponible
+        fallback_content = "Je suis désolé, mais je n'ai pas pu générer une réponse."
+        if context_text:
+            fallback_content += f" Voici les informations pertinentes que j'ai trouvées :\n\n{context_text}"
+        
+        # Create fallback response
         assistant_message = Message(
             conversation_id=conversation_id,
             role="assistant",
-            content=f"I'm sorry, but there was an error generating a response. Technical details: {error_message}"
+            content=fallback_content
         )
         db.add(assistant_message)
         db.commit()
@@ -393,9 +414,9 @@ async def send_message(
         return SendMessageResponse(
             user_message=user_message,
             assistant_message=assistant_message,
-            sources=None
+            sources=context_sources if context_sources else None
         )
-
+    
 @router.get("/{conversation_id}/available_sources", response_model=dict)
 def get_available_sources(
     conversation_id: int,
