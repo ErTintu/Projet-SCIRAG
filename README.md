@@ -80,8 +80,7 @@ SCIRAG/
 ### 1. Pré-requis
 
 - Python 3.10+
-- Node.js (si frontend)
-- PostgreSQL ou SQLite
+- PostgreSQL
 - [LM Studio](https://lmstudio.ai/) pour les modèles locaux
 - (Facultatif) Clé API : OpenAI, Claude, Cohere…
 
