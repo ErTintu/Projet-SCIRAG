@@ -32,15 +32,46 @@
 
 ## 📁 Structure du projet
 
+```bash
 SCIRAG/
-├── api/ # Endpoints FastAPI
-├── db/ # Schémas, modèles, migrations
-├── rag/ # PDF reader, chunker, embedder
-├── llm/ # Intégration des modèles LLM
-├── notes/ # Gestion des notes + embeddings
-├── tests/ # Tests unitaires et fonctionnels
-├── scripts/ # Scripts divers
-└── README.md
+/backend
+├── api/
+│   └── routes/                # Endpoints REST
+├── rag/
+│   ├── loader.py              # Lecture PDF
+│   ├── chunker.py             # Split texte
+│   ├── embedder.py            # Embeddings
+│   └── store.py               # CHROMADB index
+├── llm/
+│   ├── router.py
+│   └── providers/
+│       ├── anthropic.py
+│       ├── openai.py
+│       └── local.py
+├── conversations/
+│   ├── controller.py
+│   └── context_manager.py
+
+/frontend
+├── gradio_app.py              # Point d'entrée principal
+├── pages/                     # Pages principales de l'application
+│   ├── chat_interface.py      # Interface de conversation
+│   ├── rag_manager.py         # Gestion des corpus RAG
+│   ├── llm_config.py          # Configuration des modèles LLM
+│   └── notes_manager.py       # Gestion des notes
+├── components/                # Composants réutilisables
+│   ├── message_block.py       # Affichage des messages dans le chat
+│   ├── source_viewer.py       # Visualisation des sources RAG
+│   ├── model_selector.py      # Sélecteur de modèle LLM
+│   └── context_selector.py    # Activation des sources RAG/notes
+├── services/                  # Services et utilitaires
+│   ├── api_client.py          # Client pour l'API backend
+│   ├── state_manager.py       # Gestion de l'état de l'application
+│   └── utils.py               # Fonctions utilitaires
+└── assets/                    # Ressources statiques
+    ├── styles.css             # Styles CSS personnalisés
+    └── logo.png               # Logo de l'application
+```
 
 ---
 
