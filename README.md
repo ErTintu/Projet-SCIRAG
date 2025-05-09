@@ -122,7 +122,6 @@ ________________________________________
 •	 Interface CLI interactive
 •	 Import/export de conversations
 •	 Auth multi-utilisateur
-•	 UI React / Next.js
 ________________________________________
 👤 Auteur
 Projet par Erwan Tinturier
