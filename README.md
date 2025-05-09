@@ -26,7 +26,7 @@
 | Vector Store      | ChromaDB                  |
 | Embeddings        | OpenAI / modèle local     |
 | Modèles LLM       | LM Studio / API externes  |
-| Frontend (option) | Next.js / React           |
+| Frontend (option) | Gradio                    |
 
 ---
 
