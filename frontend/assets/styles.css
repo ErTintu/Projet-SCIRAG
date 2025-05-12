@@ -1,0 +1,158 @@
+/* Styles généraux */
+body {
+    font-family: 'Inter', sans-serif;
+}
+
+/* Styles des messages */
+.user-message {
+    background-color: #f0f7ff;
+    border-radius: 8px;
+    padding: 10px;
+    margin-bottom: 8px;
+}
+
+.assistant-message {
+    background-color: #f0fff4;
+    border-radius: 8px;
+    padding: 10px;
+    margin-bottom: 8px;
+}
+
+.system-message {
+    background-color: #fff0f0;
+    border-radius: 8px;
+    padding: 10px;
+    margin-bottom: 8px;
+    color: #d32f2f;
+}
+
+/* Animation de chargement */
+.loading-spinner {
+    display: inline-block;
+    position: relative;
+}
+
+.loading-spinner:after {
+    content: '...';
+    animation: dots 1.5s steps(5, end) infinite;
+}
+
+@keyframes dots {
+    0%, 20% { content: '.'; }
+    40% { content: '..'; }
+    60% { content: '...'; }
+    80%, 100% { content: ''; }
+}
+
+/* Styles des sources */
+.sources-container {
+    margin-top: 20px;
+    padding: 15px;
+    background-color: #f5f5f5;
+    border-radius: 8px;
+}
+
+.sources-container h3 {
+    margin-top: 0;
+    color: #444;
+}
+
+.sources-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.source-item {
+    background-color: rgba(79, 23, 46, 0.972);
+    border-radius: 6px;
+    padding: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.source-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.source-icon {
+    font-size: 20px;
+    margin-right: 8px;
+}
+
+.source-type {
+    font-weight: bold;
+    flex-grow: 1;
+}
+
+.source-score {
+    color: #666;
+    font-size: 0.9em;
+}
+
+.source-content {
+    font-size: 0.95em;
+    line-height: 1.5;
+    color: #333;
+    background-color: #f9f9f9;
+    padding: 8px;
+    border-radius: 4px;
+}
+
+/* Styles des corpus et notes */
+.corpus-details, .note-stats, .config-details {
+    padding: 12px;
+    background-color: #332727;
+    border-radius: 6px;
+}
+
+.corpus-stats {
+    display: flex;
+    gap: 15px;
+    margin-top: 10px;
+}
+
+.corpus-stats span {
+    background-color: #6b6161;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.9em;
+}
+
+/* Styles des boutons */
+button.primary {
+    background-color: #2196f3;
+    color: white;
+}
+
+button.secondary {
+    background-color: #f5f5f5;
+    color: #333;
+}
+
+button.success {
+    background-color: #4caf50;
+    color: white;
+}
+
+button.danger {
+    background-color: #f44336;
+    color: white;
+}
+
+/* Styles des formulaires */
+.form-section {
+    background-color: #f9f9f9;
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 15px;
+}
+
+/* Améliorations pour le responsive */
+@media (max-width: 768px) {
+    .corpus-stats {
+        flex-direction: column;
+        gap: 5px;
+    }
+}

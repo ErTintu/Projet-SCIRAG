@@ -1,6 +1,6 @@
-# Frontend dependencies
-streamlit==1.30.0
-requests==2.31.0
+# requirements.txt (frontend)
+gradio==5.29.0
+requests==2.32.3
+#pillow==11.2.1
 pandas==2.1.4
-plotly==5.18.0
 python-dotenv==1.0.0
