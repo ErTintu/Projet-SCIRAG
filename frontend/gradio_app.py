@@ -39,11 +39,19 @@ def create_app():
     et l'intégration de notes personnelles activables.
     """
     
-    # Création de l'application
+    # Création de l'application avec compatibilité Gradio 5.x
     with gr.Blocks(
         title=title, 
         theme=gr.themes.Soft(), 
-        css=open(os.path.join(os.path.dirname(__file__), "assets/styles.css"), "r").read()
+        css=open(os.path.join(os.path.dirname(__file__), "assets/styles.css"), "r").read() if os.path.exists(os.path.join(os.path.dirname(__file__), "assets/styles.css")) else "",
+        analytics_enabled=False,  # Nouvelle option Gradio 5.x
+        head=[  # Nouvelle option Gradio 5.x pour ajouter du contenu au head HTML
+            """
+            <meta name="description" content="SCIRAG - Assistant Conversationnel Intelligent basé sur RAG">
+            <meta name="author" content="SCIRAG">
+            <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧠</text></svg>">
+            """
+        ]
     ) as app:
         gr.Markdown(f"# {title}")
         gr.Markdown(description)
@@ -58,11 +66,12 @@ def create_app():
             else:
                 return f"❌ Impossible de se connecter à l'API: {API_URL}"
         
+        # Utilisation de app.load() avec Gradio 5.x
         app.load(fn=check_api, outputs=api_status)
         
-        # Section pour les onglets dans gradio_app.py
-        with gr.Tabs():
-            with gr.TabItem("Conversations"):
+        # Section pour les onglets dans gradio_app.py - avec TabItem mis à jour pour Gradio 5.x
+        with gr.Tabs(selected=0) as tabs:  # selected est un paramètre Gradio 5.x
+            with gr.Tab("Conversations", id="tab-conversations"):  # Utilisation de Tab au lieu de TabItem pour Gradio 5.x
                 chat_interface = create_chat_interface(api_client)
                 
                 # Filtrer les sorties valides (non None)
@@ -78,39 +87,19 @@ def create_app():
                     outputs=outputs
                 )
             
-            with gr.TabItem("Gestion RAG"):
+            with gr.Tab("Gestion RAG", id="tab-rag"):  # Utilisation de Tab au lieu de TabItem pour Gradio 5.x
                 rag_manager = create_rag_manager(api_client)
                 
                 # Configuration de l'événement de chargement pour le gestionnaire RAG
-                # Utiliser on_load_outputs s'il existe, sinon utiliser la liste explicite
-                app.local(
-                    fn=rag_manager["on_load",
-                                   outputs=[
-                                       rag_manager["rag_state"],
-                    rag_manager["current_corpus_id"],
-                    rag_manager["corpus_list_html"],
-                    rag_manager["corpus_buttons"],
-                    rag_manager["corpus_info"],
-                    rag_manager["documents_table"]]]
-                )
-                rag_outputs = rag_manager.get("on_load", [
-                    rag_manager["rag_state"],
-                    rag_manager["current_corpus_id"],
-                    rag_manager["corpus_list_html"],
-                    rag_manager["corpus_buttons"],
-                    rag_manager["corpus_info"],
-                    rag_manager["documents_table"]
-                ])
-                
                 app.load(
                     fn=rag_manager["on_load"],
-                    outputs=rag_outputs
+                    outputs=rag_manager["on_load_outputs"]
                 )
                 
                 # Déclencher la mise à jour des composants après le chargement
                 rag_manager["rag_state"].change(lambda x: None, inputs=[rag_manager["rag_state"]], outputs=[])
             
-            with gr.TabItem("Configurations LLM"):
+            with gr.Tab("Configurations LLM", id="tab-llm"):  # Utilisation de Tab au lieu de TabItem pour Gradio 5.x
                 llm_config = create_llm_config(api_client)
                 
                 # Configuration de l'événement de chargement pour la configuration LLM
@@ -127,7 +116,7 @@ def create_app():
                 # Déclencher la mise à jour des composants après le chargement
                 llm_config["llm_state"].change(lambda x: None, inputs=[llm_config["llm_state"]], outputs=[])
             
-            with gr.TabItem("Notes"):
+            with gr.Tab("Notes", id="tab-notes"):  # Utilisation de Tab au lieu de TabItem pour Gradio 5.x
                 notes_manager = create_notes_manager(api_client)
                 
                 # Configuration de l'événement de chargement pour le gestionnaire de notes
@@ -144,7 +133,10 @@ def create_app():
                 
         # Pied de page
         gr.Markdown("---")
-        gr.Markdown("© 2025 SCIRAG - Développé avec Gradio et FastAPI")
+        with gr.Row():
+            gr.Markdown("© 2025 SCIRAG - Développé avec Gradio et FastAPI")
+            # Ajout d'un lien vers la documentation API (Swagger) - fonctionnalité Gradio 5.x
+            gr.HTML(f'<div style="text-align: right;"><a href="{API_URL}/docs" target="_blank">📚 Documentation API</a></div>')
     
     return app
 
@@ -156,11 +148,27 @@ if __name__ == "__main__":
     api_client = APIClient(API_URL)
     if api_client.check_health():
         logger.info(f"✅ Connecté à l'API: {API_URL}")
-        app.launch(server_name="0.0.0.0", server_port=8501)
+        # Options avancées pour Gradio 5.x
+        app.launch(
+            server_name="0.0.0.0",
+            server_port=8501,
+            favicon_path=None,  # Utilisation de l'emoji dans les métadonnées head
+            share=False,
+            debug=False,
+            auth=None,
+            quiet=False,
+            show_error=True,
+            enable_queue=True  # Activer la file d'attente pour les fonctions yield
+        )
     else:
         logger.error(f"❌ Impossible de se connecter à l'API: {API_URL}")
         logger.error("Veuillez démarrer le backend avant le frontend.")
         
         # Lancer quand même l'application avec un avertissement
         logger.info("Lancement de l'application en mode dégradé...")
-        app.launch(server_name="0.0.0.0", server_port=8501)
+        app.launch(
+            server_name="0.0.0.0",
+            server_port=8501,
+            share=False,
+            enable_queue=True
+        )
