@@ -2,6 +2,7 @@ import gradio as gr
 import os
 import logging
 from typing import List, Dict, Any
+
 from services.utils import format_timestamp, truncate_text
 
 logger = logging.getLogger(__name__)
@@ -156,15 +157,12 @@ def create_rag_manager(api_client):
             # Liste des corpus existants
             gr.Markdown("### Corpus existants")
             
-            # Création d'une liste simple de corpus
-            corpus_list_html = gr.HTML("Chargement des corpus...")
-            corpus_buttons = gr.HTML("")
-            
-            # Bouton de sélection direct avec ID caché
-            corpus_selector = gr.Number(
-                label="ID du corpus à sélectionner",
+            # Utilisation d'une liste déroulante au lieu du HTML pour la sélection
+            corpus_dropdown = gr.Dropdown(
+                label="Sélectionner un corpus",
+                choices=[],
                 value=None,
-                visible=False
+                interactive=True
             )
             
             refresh_button = gr.Button("🔄 Rafraîchir")
@@ -191,7 +189,9 @@ def create_rag_manager(api_client):
             
             documents_table = gr.Dataframe(
                 headers=["ID", "Nom", "Type", "Date d'ajout", "Chunks", "Actions"],
-                interactive=False
+                interactive=False,
+                row_count=10,
+                wrap=True
             )
             
             # Bouton de suppression pour le document sélectionné
@@ -206,110 +206,13 @@ def create_rag_manager(api_client):
                     interactive=False
                 )
     
-    # Générer du HTML pour afficher la liste des corpus avec des boutons cliquables
-    def generate_corpus_list_html(state_dict):
-        corpus_list = state_dict.get("corpus_list", [])
-        current_id = state_dict.get("current_corpus_id")
-        
-        if not corpus_list:
-            return "<p>Aucun corpus disponible. Créez un nouveau corpus ou rafraîchissez la liste.</p>"
-        
-        html = "<div class='corpus-list'>"
-        html += "<ul style='list-style-type: none; padding-left: 0;'>"
-        
-        for corpus in corpus_list:
-            selected = "font-weight: bold; background-color: #e0f0ff;" if corpus["id"] == current_id else ""
-            html += f"""
-            <li style='padding: 8px; margin-bottom: 4px; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; {selected}'>
-                <div onclick='document.querySelector("#corpus-select-{corpus["id"]}").click()'>
-                    <span style='font-size: 14px;'>{corpus['name']}</span>
-                    <span style='font-size: 12px; color: #666; margin-left: 5px;'>(ID: {corpus['id']})</span>
-                </div>
-                <input id="corpus-select-{corpus['id']}" 
-                       type="button" 
-                       value="Sélectionner" 
-                       style="display: none;" 
-                       onclick="setCorpusId({corpus['id']})" />
-            </div>
-            </li>
-            """
-        
-        html += "</ul></div>"
-        
-        # Ajouter du JavaScript pour communiquer avec Gradio
-        html += """
-        <script>
-        function setCorpusId(id) {
-            // Trouver l'élément input avec le label "ID du corpus à sélectionner"
-            const inputs = document.querySelectorAll('input[type="number"]');
-            let corpusInput = null;
-            
-            for (const input of inputs) {
-                const label = input.parentElement.querySelector('label');
-                if (label && label.textContent.includes("ID du corpus à sélectionner")) {
-                    corpusInput = input;
-                    break;
-                }
-            }
-            
-            if (corpusInput) {
-                // Définir la valeur
-                corpusInput.value = id;
-                
-                // Déclencher l'événement change
-                const event = new Event('input', { bubbles: true });
-                corpusInput.dispatchEvent(event);
-                
-                // Essayer également de déclencher change
-                setTimeout(() => {
-                    const changeEvent = new Event('change', { bubbles: true });
-                    corpusInput.dispatchEvent(changeEvent);
-                    
-                    // Simuler un clic sur le bouton Submit
-                    const buttons = document.querySelectorAll('button[type="submit"]');
-                    for (const button of buttons) {
-                        if (button.closest('div').contains(corpusInput)) {
-                            button.click();
-                            break;
-                        }
-                    }
-                }, 100);
-            }
-        }
-        </script>
-        """
-        
-        return html
-    
-    # Créer des boutons simples pour chaque corpus
-    def generate_corpus_buttons(state_dict):
-        corpus_list = state_dict.get("corpus_list", [])
-        
-        if not corpus_list:
-            return ""
-        
-        buttons = []
-        for i, corpus in enumerate(corpus_list):
-            id_button = f"""
-            <button 
-                onclick="setCorpusId({corpus['id']})" 
-                style="margin-right: 5px; margin-bottom: 5px;">
-                {corpus['name']}
-            </button>
-            """
-            buttons.append(id_button)
-        
-        html = "<div>" + "".join(buttons) + "</div>"
-        
-        return html
-    
     # Chargement initial
     def on_load():
         state, corpus_id = load_corpus_list()
         
-        # Générer HTML pour la liste des corpus
-        corpus_list_html_content = generate_corpus_list_html(state)
-        corpus_buttons_html = generate_corpus_buttons(state)
+        # Préparer les choix pour le dropdown de corpus
+        corpus_list = state.get("corpus_list", [])
+        corpus_choices = [(c["name"], c["id"]) for c in corpus_list]
         
         # Préparer les détails du corpus et les documents
         if corpus_id:
@@ -349,8 +252,7 @@ def create_rag_manager(api_client):
         return [
             state,                     # rag_state
             corpus_id,                 # current_corpus_id
-            corpus_list_html_content,  # corpus_list_html
-            corpus_buttons_html,       # corpus_buttons
+            corpus_choices,            # corpus_dropdown
             corpus_html,               # corpus_info
             documents_data             # documents_table
         ]
@@ -378,14 +280,13 @@ def create_rag_manager(api_client):
             # ID du corpus courant
             corpus_id = state["current_corpus_id"]
             
+            # Préparer les choix pour le dropdown
+            corpus_choices = [(c["name"], c["id"]) for c in corpus_list]
+            
             # Charger les détails du corpus sélectionné
             if corpus_id:
                 state_update, _ = load_corpus_details(corpus_id)
                 state.update(state_update)
-            
-            # Générer HTML pour la liste des corpus
-            corpus_list_html_content = generate_corpus_list_html(state)
-            corpus_buttons_html = generate_corpus_buttons(state)
             
             corpus_details = state.get("current_corpus_details")
             if corpus_details:
@@ -414,14 +315,13 @@ def create_rag_manager(api_client):
                     f"🗑️ Supprimer"
                 ])
             
-            return state, corpus_id, corpus_list_html_content, corpus_buttons_html, corpus_html, documents_data
+            return state, corpus_id, corpus_choices, corpus_html, documents_data
         except Exception as e:
             logger.error(f"Erreur lors du rafraîchissement des corpus: {e}")
             return (
                 {"corpus_list": [], "error": str(e)}, 
                 None, 
-                "<p>Erreur lors du chargement des corpus</p>", 
-                "",
+                [],
                 "Erreur lors du chargement des corpus",
                 []
             )
@@ -431,15 +331,19 @@ def create_rag_manager(api_client):
         outputs=[
             rag_state, 
             current_corpus_id, 
-            corpus_list_html, 
-            corpus_buttons,
+            corpus_dropdown,
             corpus_info,
             documents_table
         ]
     )
     
-    # Sélection d'un corpus via le sélecteur caché
-    def select_corpus_by_id(corpus_id):
+    # Sélection d'un corpus via le dropdown
+    def select_corpus_by_id(corpus_id_or_tuple):
+        # Gestion du cas où corpus_id pourrait être un tuple (nom, id)
+        corpus_id = corpus_id_or_tuple
+        if isinstance(corpus_id_or_tuple, (list, tuple)) and len(corpus_id_or_tuple) > 1:
+            corpus_id = corpus_id_or_tuple[1]  # Extraire l'ID
+            
         logger.info(f"Sélection du corpus {corpus_id}")
         if corpus_id is None:
             return None, {}, "Sélectionnez un corpus pour voir les détails", []
@@ -480,9 +384,9 @@ def create_rag_manager(api_client):
             logger.error(f"Erreur lors de la sélection du corpus {corpus_id}: {e}")
             return None, {}, "Erreur lors du chargement du corpus", []
     
-    corpus_selector.change(
+    corpus_dropdown.change(
         fn=select_corpus_by_id,
-        inputs=[corpus_selector],
+        inputs=[corpus_dropdown],
         outputs=[current_corpus_id, rag_state, corpus_info, documents_table]
     )
     
@@ -502,8 +406,11 @@ def create_rag_manager(api_client):
     
     # Mettre à jour l'affichage quand l'état change
     def update_interface(state_dict):
-        corpus_list_html_content = generate_corpus_list_html(state_dict)
-        corpus_buttons_html = generate_corpus_buttons(state_dict)
+        corpus_list = state_dict.get("corpus_list", [])
+        current_id = state_dict.get("current_corpus_id")
+        
+        # Mise à jour du dropdown
+        corpus_choices = [(c["name"], c["id"]) for c in corpus_list]
         
         corpus_details = state_dict.get("current_corpus_details")
         if corpus_details:
@@ -532,28 +439,25 @@ def create_rag_manager(api_client):
                 f"🗑️ Supprimer"
             ])
         
-        return corpus_list_html_content, corpus_buttons_html, corpus_html, documents_data
+        return corpus_choices, corpus_html, documents_data
     
     rag_state.change(
         fn=update_interface,
         inputs=[rag_state],
-        outputs=[corpus_list_html, corpus_buttons, corpus_info, documents_table]
+        outputs=[corpus_dropdown, corpus_info, documents_table]
     )
     
     return {
         "rag_state": rag_state,
         "current_corpus_id": current_corpus_id,
-        "corpus_list_html": corpus_list_html,
-        "corpus_buttons": corpus_buttons,
-        "corpus_selector": corpus_selector,
+        "corpus_dropdown": corpus_dropdown,
         "documents_table": documents_table,
         "corpus_info": corpus_info,
         "on_load": on_load,
         "on_load_outputs": [
             rag_state,
             current_corpus_id,
-            corpus_list_html,
-            corpus_buttons,
+            corpus_dropdown,
             corpus_info,
             documents_table
         ]
