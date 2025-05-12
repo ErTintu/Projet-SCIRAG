@@ -29,6 +29,9 @@ def create_chat_interface(api_client):
         "error": None
     })
     
+    # État pour stocker l'ID de la conversation courante
+    current_conversation_id = gr.State(None)
+    
     # Fonction pour charger les conversations
     def load_conversations():
         try:
@@ -37,20 +40,20 @@ def create_chat_interface(api_client):
                 "conversations": conversations,
                 "current_conversation_id": conversations[0]["id"] if conversations else None,
                 "error": None
-            }
+            }, conversations[0]["id"] if conversations else None
         except Exception as e:
             logger.error(f"Erreur lors du chargement des conversations: {e}")
             return {
                 "conversations": [],
                 "error": str(e)
-            }
+            }, None
     
     # Fonction pour créer une nouvelle conversation
     def create_new_conversation(title, llm_config_id):
         if not title:
             return {
                 "error": "Le titre ne peut pas être vide"
-            }
+            }, None
         
         try:
             new_conversation = api_client.create_conversation(
@@ -66,12 +69,12 @@ def create_chat_interface(api_client):
                 "messages": [],
                 "sources": [],
                 "error": None
-            }
+            }, new_conversation["id"]
         except Exception as e:
             logger.error(f"Erreur lors de la création de la conversation: {e}")
             return {
                 "error": str(e)
-            }
+            }, None
     
     # Fonction pour charger une conversation existante
     def load_conversation(conversation_id):
@@ -81,7 +84,7 @@ def create_chat_interface(api_client):
                 "messages": [],
                 "sources": [],
                 "error": None
-            }
+            }, None
         
         try:
             conversation = api_client.get_conversation(conversation_id)
@@ -91,19 +94,19 @@ def create_chat_interface(api_client):
                 "messages": conversation.get("messages", []),
                 "sources": [],  # Réinitialiser les sources
                 "error": None
-            }
+            }, conversation_id
         except Exception as e:
             logger.error(f"Erreur lors du chargement de la conversation {conversation_id}: {e}")
             return {
                 "error": str(e)
-            }
+            }, None
     
     # Fonction pour supprimer une conversation
     def delete_conversation(conversation_id):
         if not conversation_id:
             return {
                 "error": "Aucune conversation sélectionnée"
-            }
+            }, None
         
         try:
             api_client.delete_conversation(conversation_id)
@@ -115,12 +118,12 @@ def create_chat_interface(api_client):
                 "messages": [],
                 "sources": [],
                 "error": None
-            }
+            }, conversations[0]["id"] if conversations else None
         except Exception as e:
             logger.error(f"Erreur lors de la suppression de la conversation {conversation_id}: {e}")
             return {
                 "error": str(e)
-            }
+            }, None
     
     # Fonction pour envoyer un message
     def send_message(
@@ -134,10 +137,10 @@ def create_chat_interface(api_client):
         if not conversation_id:
             return message, {
                 "error": "Veuillez sélectionner ou créer une conversation"
-            }
+            }, conversation_id
         
         if not message.strip():
-            return message, state
+            return message, state, conversation_id
         
         try:
             # Mise à jour de l'état (affichage immédiat du message utilisateur)
@@ -164,7 +167,7 @@ def create_chat_interface(api_client):
                 "messages": messages,
                 "current_conversation_id": conversation_id,
                 "error": None
-            }
+            }, conversation_id
             
             # Envoi du message à l'API
             response = api_client.send_message(
@@ -184,13 +187,13 @@ def create_chat_interface(api_client):
             
             # Obtenir les sources
             sources = response.get("sources", [])
-
+            
             yield "", {
                 "messages": messages,
                 "sources": sources,
                 "current_conversation_id": conversation_id,
                 "error": None
-            }
+            }, conversation_id
             
         except Exception as e:
             logger.error(f"Erreur lors de l'envoi du message: {e}")
@@ -209,30 +212,30 @@ def create_chat_interface(api_client):
                 "messages": messages,
                 "current_conversation_id": conversation_id,
                 "error": str(e)
-            }
+            }, conversation_id
     
     # Création des composants UI
     with gr.Row():
         with gr.Column(scale=1):
             # Liste des conversations
-            with gr.Group(title="Conversations"):
-                conversation_list = gr.Dropdown(
-                    label="Conversations existantes", 
-                    choices=[], 
-                    value=None,
-                    interactive=True
-                )
-                
-                with gr.Row():
-                    new_conversation_title = gr.Textbox(
-                        label="Titre de la nouvelle conversation",
-                        placeholder="Ma nouvelle conversation"
-                    )
-                    create_button = gr.Button("Créer", variant="primary")
-                
-                with gr.Row():
-                    refresh_button = gr.Button("🔄 Rafraîchir")
-                    delete_button = gr.Button("🗑️ Supprimer", variant="stop")
+            gr.Markdown("### Conversations")
+            
+            conversation_list = gr.Dropdown(
+                label="Conversations existantes", 
+                choices=[], 
+                value=None,
+                interactive=True
+            )
+            
+            new_conversation_title = gr.Textbox(
+                label="Titre de la nouvelle conversation",
+                placeholder="Ma nouvelle conversation"
+            )
+            create_button = gr.Button("Créer", variant="primary")
+            
+            with gr.Row():
+                refresh_button = gr.Button("🔄 Rafraîchir")
+                delete_button = gr.Button("🗑️ Supprimer", variant="stop")
             
             # Sélecteur de modèle LLM
             llm_selector = create_model_selector()
@@ -246,7 +249,8 @@ def create_chat_interface(api_client):
                 label="Conversation",
                 height=500,
                 render=render_message,
-                show_label=False
+                show_label=False,
+                type="messages"  # Type de message (format openai)
             )
             
             # Zone de saisie et bouton d'envoi
@@ -266,40 +270,29 @@ def create_chat_interface(api_client):
     
     # Chargement initial des conversations
     def on_load():
-        state = load_conversations()
+        state, conv_id = load_conversations()
         
         # Mettre à jour la liste des conversations
         conversations = state.get("conversations", [])
         conversation_choices = [(c["title"], c["id"]) for c in conversations]
         current_id = state.get("current_conversation_id")
         
-        # Chargement des modèles LLM
-        model_dropdown, model_id = llm_selector["load_models"](api_client)
+        # Mettre à jour la liste déroulante avec les choix
+        conversation_list_updated = gr.Dropdown(
+            choices=conversation_choices, 
+            value=current_id
+        )
         
+        # Retourner exactement les 3 valeurs attendues par gradio_app.py
         return [
-            gr.Dropdown(choices=conversation_choices, value=current_id),  # conversation_list
+            conversation_list_updated,  # conversation_list
             state,  # conversation_state
-            model_dropdown,  # llm_selector["model_dropdown"]
-            model_id,  # llm_selector["selected_config_id"]
-            gr.Markdown(visible=bool(state.get("error")), value=state.get("error", "")),  # error_display
+            gr.Markdown(visible=bool(state.get("error")), value=state.get("error", ""))  # error_display
         ]
-    
-    # Événements
-    gr.on(
-        gr.triggers.Loads,
-        fn=on_load,
-        outputs=[
-            conversation_list,
-            conversation_state,
-            llm_selector["model_dropdown"],
-            llm_selector["selected_config_id"],
-            error_display
-        ]
-    )
     
     # Création d'une nouvelle conversation
     def handle_create_conversation(title, llm_config_id):
-        state = create_new_conversation(title, llm_config_id)
+        state, conv_id = create_new_conversation(title, llm_config_id)
         
         # Mettre à jour la liste des conversations
         conversations = state.get("conversations", [])
@@ -313,6 +306,7 @@ def create_chat_interface(api_client):
             "",  # new_conversation_title
             gr.Dropdown(choices=conversation_choices, value=current_id),  # conversation_list
             state,  # conversation_state
+            conv_id,  # current_conversation_id
             [],  # chat_box
             "",  # sources_display
             rag_group,  # context_selector["active_rags"]
@@ -330,6 +324,7 @@ def create_chat_interface(api_client):
             new_conversation_title,
             conversation_list,
             conversation_state,
+            current_conversation_id,
             chat_box,
             sources_display,
             context_selector["active_rags"],
@@ -340,13 +335,14 @@ def create_chat_interface(api_client):
     
     # Chargement d'une conversation existante
     def handle_load_conversation(conversation_id):
-        state = load_conversation(conversation_id)
+        state, conv_id = load_conversation(conversation_id)
         
         # Mise à jour des sources disponibles
         rag_group, note_group = context_selector["update_available_sources"](conversation_id, api_client)
         
         return [
             state,  # conversation_state
+            conv_id,  # current_conversation_id
             state.get("messages", []),  # chat_box
             render_sources(state.get("sources", [])),  # sources_display
             rag_group,  # context_selector["active_rags"]
@@ -359,6 +355,7 @@ def create_chat_interface(api_client):
         inputs=[conversation_list],
         outputs=[
             conversation_state,
+            current_conversation_id,
             chat_box,
             sources_display,
             context_selector["active_rags"],
@@ -368,18 +365,18 @@ def create_chat_interface(api_client):
     )
     
     # Suppression d'une conversation
-    def handle_delete_conversation(state):
-        conversation_id = state.get("current_conversation_id")
+    def handle_delete_conversation(conversation_id, state):
         if not conversation_id:
             return [
                 state,
+                None,
                 gr.Dropdown(choices=[]),
                 [],
                 "",
                 gr.Markdown(visible=True, value="Aucune conversation sélectionnée")
             ]
         
-        result = delete_conversation(conversation_id)
+        result, conv_id = delete_conversation(conversation_id)
         
         # Mettre à jour la liste des conversations
         conversations = result.get("conversations", [])
@@ -388,6 +385,7 @@ def create_chat_interface(api_client):
         
         return [
             result,  # conversation_state
+            conv_id,  # current_conversation_id
             gr.Dropdown(choices=conversation_choices, value=current_id),  # conversation_list
             [],  # chat_box
             "",  # sources_display
@@ -396,9 +394,10 @@ def create_chat_interface(api_client):
     
     delete_button.click(
         fn=handle_delete_conversation,
-        inputs=[conversation_state],
+        inputs=[current_conversation_id, conversation_state],
         outputs=[
             conversation_state,
+            current_conversation_id,
             conversation_list,
             chat_box,
             sources_display,
@@ -408,7 +407,7 @@ def create_chat_interface(api_client):
     
     # Rafraîchissement des conversations
     def handle_refresh_conversations():
-        state = load_conversations()
+        state, conv_id = load_conversations()
         
         # Mettre à jour la liste des conversations
         conversations = state.get("conversations", [])
@@ -418,6 +417,7 @@ def create_chat_interface(api_client):
         return [
             gr.Dropdown(choices=conversation_choices, value=current_id),  # conversation_list
             state,  # conversation_state
+            conv_id,  # current_conversation_id
             gr.Markdown(visible=bool(state.get("error")), value=state.get("error", ""))  # error_display
         ]
     
@@ -426,6 +426,7 @@ def create_chat_interface(api_client):
         outputs=[
             conversation_list,
             conversation_state,
+            current_conversation_id,
             error_display
         ]
     )
@@ -441,8 +442,8 @@ def create_chat_interface(api_client):
     
     # Rafraîchissement des sources disponibles
     context_selector["refresh_button"].click(
-        fn=lambda state: context_selector["update_available_sources"](state.get("current_conversation_id"), api_client),
-        inputs=[conversation_state],
+        fn=lambda conv_id: context_selector["update_available_sources"](conv_id, api_client),
+        inputs=[current_conversation_id],
         outputs=[
             context_selector["active_rags"],
             context_selector["active_notes"]
@@ -450,12 +451,12 @@ def create_chat_interface(api_client):
     )
     
     # Envoi d'un message
-    def handle_send_message(message, state, llm_config_id, active_rags, active_notes):
-        conversation_id = state.get("current_conversation_id")
+    def handle_send_message(message, state, conversation_id, llm_config_id, active_rags, active_notes):
         if not conversation_id:
             return [
                 message,
                 state,
+                conversation_id,
                 gr.Markdown(visible=True, value="Veuillez sélectionner ou créer une conversation")
             ]
         
@@ -470,11 +471,12 @@ def create_chat_interface(api_client):
         )
         
         # Premier appel pour afficher immédiatement le message utilisateur
-        message, state = next(generator)
+        message, state, conv_id = next(generator)
         
         yield [
             message,  # user_input
             state,  # conversation_state
+            conv_id,  # current_conversation_id
             state.get("messages", []),  # chat_box
             render_sources(state.get("sources", [])),  # sources_display
             gr.Markdown(visible=bool(state.get("error")), value=state.get("error", ""))  # error_display
@@ -482,11 +484,12 @@ def create_chat_interface(api_client):
         
         # Deuxième appel pour afficher la réponse de l'assistant
         try:
-            message, state = next(generator)
+            message, state, conv_id = next(generator)
             
             yield [
                 message,  # user_input
                 state,  # conversation_state
+                conv_id,  # current_conversation_id
                 state.get("messages", []),  # chat_box
                 render_sources(state.get("sources", [])),  # sources_display
                 gr.Markdown(visible=bool(state.get("error")), value=state.get("error", ""))  # error_display
@@ -502,6 +505,7 @@ def create_chat_interface(api_client):
         inputs=[
             user_input,
             conversation_state,
+            current_conversation_id,
             llm_selector["selected_config_id"],
             context_selector["active_rags"],
             context_selector["active_notes"]
@@ -509,6 +513,7 @@ def create_chat_interface(api_client):
         outputs=[
             user_input,
             conversation_state,
+            current_conversation_id,
             chat_box,
             sources_display,
             error_display
@@ -520,6 +525,7 @@ def create_chat_interface(api_client):
         inputs=[
             user_input,
             conversation_state,
+            current_conversation_id,
             llm_selector["selected_config_id"],
             context_selector["active_rags"],
             context_selector["active_notes"]
@@ -527,6 +533,7 @@ def create_chat_interface(api_client):
         outputs=[
             user_input,
             conversation_state,
+            current_conversation_id,
             chat_box,
             sources_display,
             error_display
@@ -535,9 +542,11 @@ def create_chat_interface(api_client):
     
     return {
         "conversation_state": conversation_state,
+        "current_conversation_id": current_conversation_id,
         "chat_box": chat_box,
         "user_input": user_input,
         "send_button": send_button,
         "conversation_list": conversation_list,
-        "error_display": error_display
+        "error_display": error_display,
+        "on_load": on_load
     }

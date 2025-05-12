@@ -8,18 +8,22 @@ def create_model_selector():
     Returns:
         Dict contenant les composants du sélecteur
     """
-    with gr.Group(title="Modèle LLM"):
-        selected_config_id = gr.State(None)
+    # État pour stocker l'ID de configuration sélectionné
+    selected_config_id = gr.State(None)
+    
+    # En-tête
+    gr.Markdown("### Modèle LLM")
+    
+    # Dropdown pour sélectionner le modèle
+    with gr.Row():
+        model_dropdown = gr.Dropdown(
+            label="Modèle à utiliser",
+            choices=[],
+            value=None,
+            interactive=True
+        )
         
-        with gr.Row():
-            model_dropdown = gr.Dropdown(
-                label="Modèle à utiliser",
-                choices=[],
-                value=None,
-                interactive=True
-            )
-            
-            refresh_button = gr.Button("🔄", scale=0.1)
+        refresh_button = gr.Button("🔄", scale=1)
     
     # Fonction pour mettre à jour la liste des modèles
     def load_models(api_client):

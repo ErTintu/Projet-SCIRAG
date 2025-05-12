@@ -64,7 +64,7 @@ body {
 }
 
 .source-item {
-    background-color: white;
+    background-color: rgba(79, 23, 46, 0.972);
     border-radius: 6px;
     padding: 12px;
     box-shadow: 0 1px 3px rgba(0,0,0,0.1);
@@ -103,7 +103,7 @@ body {
 /* Styles des corpus et notes */
 .corpus-details, .note-stats, .config-details {
     padding: 12px;
-    background-color: #f9f9f9;
+    background-color: #332727;
     border-radius: 6px;
 }
 
@@ -114,7 +114,7 @@ body {
 }
 
 .corpus-stats span {
-    background-color: #e0e0e0;
+    background-color: #6b6161;
     padding: 4px 8px;
     border-radius: 4px;
     font-size: 0.9em;

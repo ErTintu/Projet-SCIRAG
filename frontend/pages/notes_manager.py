@@ -23,6 +23,9 @@ def create_notes_manager(api_client):
         "error": None
     })
     
+    # État pour stocker l'ID de la note courante
+    current_note_id = gr.State(None)
+    
     # Fonction pour charger les notes
     def load_notes_list():
         try:
@@ -31,19 +34,19 @@ def create_notes_manager(api_client):
                 "notes_list": notes_list,
                 "current_note_id": notes_list[0]["id"] if notes_list else None,
                 "error": None
-            }
+            }, notes_list[0]["id"] if notes_list else None
         except Exception as e:
             logger.error(f"Erreur lors du chargement des notes: {e}")
             return {
                 "notes_list": [],
                 "current_note_id": None,
                 "error": str(e)
-            }
+            }, None
     
     # Fonction pour créer une nouvelle note
-    def create_note(title, content):
+    def create_note(title, content, state_value):
         if not title:
-            return "Le titre est obligatoire", notes_state.value
+            return "Le titre est obligatoire", state_value, None
         
         try:
             new_note = api_client.create_note(title, content)
@@ -54,18 +57,18 @@ def create_notes_manager(api_client):
                 "current_note_id": new_note["id"],
                 "current_note_details": new_note,
                 "error": None
-            }
+            }, new_note["id"]
         except Exception as e:
             logger.error(f"Erreur lors de la création de la note: {e}")
-            return f"Erreur: {str(e)}", notes_state.value
+            return f"Erreur: {str(e)}", state_value, None
     
     # Fonction pour mettre à jour une note existante
-    def update_note(note_id, title, content):
+    def update_note(note_id, title, content, state_value):
         if not note_id:
-            return "Aucune note sélectionnée", notes_state.value
+            return "Aucune note sélectionnée", state_value, None
         
         if not title:
-            return "Le titre est obligatoire", notes_state.value
+            return "Le titre est obligatoire", state_value, None
         
         try:
             updated_note = api_client.update_note(note_id, title, content)
@@ -76,10 +79,10 @@ def create_notes_manager(api_client):
                 "current_note_id": note_id,
                 "current_note_details": updated_note,
                 "error": None
-            }
+            }, note_id
         except Exception as e:
             logger.error(f"Erreur lors de la mise à jour de la note {note_id}: {e}")
-            return f"Erreur: {str(e)}", notes_state.value
+            return f"Erreur: {str(e)}", state_value, None
     
     # Fonction pour charger les détails d'une note
     def load_note_details(note_id):
@@ -88,7 +91,7 @@ def create_notes_manager(api_client):
                 "current_note_id": None,
                 "current_note_details": None,
                 "error": None
-            }
+            }, None
         
         try:
             note = api_client.get_note(note_id)
@@ -97,22 +100,22 @@ def create_notes_manager(api_client):
                 "current_note_id": note_id,
                 "current_note_details": note,
                 "error": None
-            }
+            }, note_id
         except Exception as e:
             logger.error(f"Erreur lors du chargement de la note {note_id}: {e}")
             return {
                 "error": str(e)
-            }
+            }, None
     
     # Fonction pour supprimer une note
-    def delete_note(note_id):
+    def delete_note(note_id, state_value):
         if not note_id:
-            return "Aucune note sélectionnée", notes_state.value
+            return "Aucune note sélectionnée", state_value, None
         
         try:
             success = api_client.delete_note(note_id)
             if not success:
-                return "Échec de la suppression de la note", notes_state.value
+                return "Échec de la suppression de la note", state_value, None
             
             notes_list = api_client.list_notes()
             
@@ -121,16 +124,17 @@ def create_notes_manager(api_client):
                 "current_note_id": notes_list[0]["id"] if notes_list else None,
                 "current_note_details": None,
                 "error": None
-            }
+            }, notes_list[0]["id"] if notes_list else None
         except Exception as e:
             logger.error(f"Erreur lors de la suppression de la note {note_id}: {e}")
-            return f"Erreur: {str(e)}", notes_state.value
+            return f"Erreur: {str(e)}", state_value, None
     
-# Interface
-with gr.Row():
-    with gr.Column(scale=1):
-        # Liste des notes existantes
-        with gr.Group(title="Notes existantes"):
+    # Interface
+    with gr.Row():
+        with gr.Column(scale=1):
+            # Liste des notes existantes
+            gr.Markdown("### Notes existantes")
+            
             notes_dropdown = gr.Dropdown(
                 label="Sélectionner une note",
                 choices=[],
@@ -141,14 +145,16 @@ with gr.Row():
             with gr.Row():
                 refresh_button = gr.Button("🔄 Rafraîchir")
                 delete_button = gr.Button("🗑️ Supprimer", variant="stop")
-        
-        # Informations sur la vectorisation
-        with gr.Group(title="Infos vectorisation"):
+            
+            # Informations sur la vectorisation
+            gr.Markdown("### Infos vectorisation")
+            
             note_stats = gr.HTML()
-    
-    with gr.Column(scale=2):  # <-- Ici, bien indenté pour ouvrir la colonne
-        # Création/édition de note
-        with gr.Group(title="Créer ou modifier une note"):
+        
+        with gr.Column(scale=2):
+            # Création/édition de note
+            gr.Markdown("### Créer ou modifier une note")
+            
             note_title = gr.Textbox(label="Titre")
             note_content = gr.Textbox(
                 label="Contenu",
@@ -167,54 +173,31 @@ with gr.Row():
     
     # Chargement initial
     def on_load():
-        state = load_notes_list()
-        
-        # Mettre à jour la liste des notes
-        notes_list = state.get("notes_list", [])
-        note_choices = [(n["title"], n["id"]) for n in notes_list]
-        current_id = state.get("current_note_id")
-        
-        # Mettre à jour l'affichage d'erreur
-        error = state.get("error")
-        error_message = f"Erreur: {error}" if error else ""
-        
-        return [
-            state,  # notes_state
-            gr.Dropdown(choices=note_choices, value=current_id),  # notes_dropdown
-            error_message  # status_message
-        ]
-    
-    gr.on(
-        gr.triggers.Loads,
-        fn=on_load,
-        outputs=[
-            notes_state,
-            notes_dropdown,
-            status_message
-        ]
-    )
+        """Fonction de chargement pour notes_manager.py"""
+        state, note_id = load_notes_list()
+        return state, note_id
     
     # Événements
     create_note_button.click(
         fn=create_note,
-        inputs=[note_title, note_content],
-        outputs=[status_message, notes_state]
+        inputs=[note_title, note_content, notes_state],
+        outputs=[status_message, notes_state, current_note_id]
     )
     
     update_note_button.click(
         fn=update_note,
-        inputs=[notes_state["current_note_id"], note_title, note_content],
-        outputs=[status_message, notes_state]
+        inputs=[current_note_id, note_title, note_content, notes_state],
+        outputs=[status_message, notes_state, current_note_id]
     )
     
     refresh_button.click(
         fn=load_notes_list,
-        outputs=[notes_state]
+        outputs=[notes_state, current_note_id]
     )
     
     # Chargement d'une note lorsqu'elle est sélectionnée
     def handle_note_selection(note_id):
-        updates = load_note_details(note_id)
+        updates, note_id_updated = load_note_details(note_id)
         note_details = updates.get("current_note_details")
         
         # Mettre à jour les champs de titre et contenu
@@ -236,6 +219,7 @@ with gr.Row():
         
         return [
             updates,  # notes_state
+            note_id_updated,  # current_note_id
             title,  # note_title
             content,  # note_content
             html,  # note_stats
@@ -246,6 +230,7 @@ with gr.Row():
         inputs=[notes_dropdown],
         outputs=[
             notes_state,
+            current_note_id,
             note_title,
             note_content,
             note_stats
@@ -254,9 +239,9 @@ with gr.Row():
     
     # Supprimer une note
     delete_button.click(
-        fn=lambda state: delete_note(state.get("current_note_id")),
-        inputs=[notes_state],
-        outputs=[status_message, notes_state]
+        fn=lambda note_id, state: delete_note(note_id, state),
+        inputs=[current_note_id, notes_state],
+        outputs=[status_message, notes_state, current_note_id]
     )
     
     # Surveillance de l'état pour mettre à jour l'interface
@@ -299,7 +284,9 @@ with gr.Row():
     
     return {
         "notes_state": notes_state,
+        "current_note_id": current_note_id,
         "notes_dropdown": notes_dropdown,
         "note_title": note_title,
-        "note_content": note_content
+        "note_content": note_content,
+        "on_load": on_load
     }
