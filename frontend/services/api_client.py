@@ -149,6 +149,18 @@ class APIClient:
         response.raise_for_status()
         return response.json()
     
+    def delete_rag_corpus(self, corpus_id: int) -> bool:
+        """Supprime un corpus RAG."""
+        try:
+            response = self.session.delete(
+                f"{self.base_url}/api/rag/corpus/{corpus_id}"
+            )
+            response.raise_for_status()
+            return True
+        except Exception as e:
+            self.logger.error(f"Erreur lors de la suppression du corpus {corpus_id}: {e}")
+            return False
+        
     def upload_document(self, corpus_id: int, file_path: str) -> Dict:
         """Upload un document dans un corpus RAG."""
         with open(file_path, "rb") as f:

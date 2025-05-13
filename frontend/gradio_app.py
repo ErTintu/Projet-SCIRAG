@@ -96,9 +96,8 @@ def create_app():
                     outputs=rag_manager["on_load_outputs"]
                 )
                 
-                # Déclencher la mise à jour des composants après le chargement
-                rag_manager["rag_state"].change(lambda x: None, inputs=[rag_manager["rag_state"]], outputs=[])
-            
+                # Pas besoin de rafraîchissement supplémentaire si on_load est bien implémenté
+                            
             with gr.Tab("Configurations LLM", id="tab-llm"):  # Utilisation de Tab au lieu de TabItem pour Gradio 5.x
                 llm_config = create_llm_config(api_client)
                 
@@ -148,17 +147,16 @@ if __name__ == "__main__":
     api_client = APIClient(API_URL)
     if api_client.check_health():
         logger.info(f"✅ Connecté à l'API: {API_URL}")
-        # Options avancées pour Gradio 5.x
+        # Options de lancement simplifiées - suppression de enable_queue qui cause une erreur
         app.launch(
             server_name="0.0.0.0",
             server_port=8501,
-            favicon_path=None,  # Utilisation de l'emoji dans les métadonnées head
+            favicon_path=None,
             share=False,
             debug=False,
             auth=None,
             quiet=False,
-            show_error=True,
-            enable_queue=True  # Activer la file d'attente pour les fonctions yield
+            show_error=True
         )
     else:
         logger.error(f"❌ Impossible de se connecter à l'API: {API_URL}")
@@ -169,6 +167,5 @@ if __name__ == "__main__":
         app.launch(
             server_name="0.0.0.0",
             server_port=8501,
-            share=False,
-            enable_queue=True
+            share=False
         )

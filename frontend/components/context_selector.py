@@ -81,23 +81,19 @@ def create_context_selector():
             context_id: ID de la source
             is_active: État d'activation
             api_client: Client API
-            
-        Returns:
-            Message de statut
         """
         if not conversation_id:
-            return "Aucune conversation sélectionnée"
+            return
         
         try:
-            result = api_client.update_context_activation(
+            api_client.update_context_activation(
                 conversation_id=conversation_id,
                 context_type=context_type,
                 context_id=context_id,
                 is_active=is_active
             )
-            return f"Source {'activée' if is_active else 'désactivée'} avec succès"
         except Exception as e:
-            return f"Erreur: {str(e)}"
+            print(f"Erreur: {str(e)}")
     
     # Fonction pour traiter les changements de sélection RAG
     def handle_rag_change(conversation_id, selected_values, api_client):
@@ -108,12 +104,9 @@ def create_context_selector():
             conversation_id: ID de la conversation
             selected_values: Valeurs sélectionnées
             api_client: Client API
-            
-        Returns:
-            Message de statut
         """
         if not conversation_id:
-            return "Aucune conversation sélectionnée"
+            return
         
         try:
             # Récupérer les sources disponibles
@@ -141,10 +134,8 @@ def create_context_selector():
                         context_id=corpus_id,
                         is_active=is_active
                     )
-            
-            return "Sources RAG mises à jour avec succès"
         except Exception as e:
-            return f"Erreur: {str(e)}"
+            print(f"Erreur: {str(e)}")
     
     # Fonction pour traiter les changements de sélection des notes
     def handle_note_change(conversation_id, selected_values, api_client):
@@ -155,12 +146,9 @@ def create_context_selector():
             conversation_id: ID de la conversation
             selected_values: Valeurs sélectionnées
             api_client: Client API
-            
-        Returns:
-            Message de statut
         """
         if not conversation_id:
-            return "Aucune conversation sélectionnée"
+            return
         
         try:
             # Récupérer les sources disponibles
@@ -188,10 +176,8 @@ def create_context_selector():
                         context_id=note_id,
                         is_active=is_active
                     )
-            
-            return "Notes mises à jour avec succès"
         except Exception as e:
-            return f"Erreur: {str(e)}"
+            print(f"Erreur: {str(e)}")
     
     return {
         "active_rags": active_rags,

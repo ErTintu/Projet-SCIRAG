@@ -139,12 +139,10 @@ def create_chat_interface(api_client):
         active_notes
     ):
         if not conversation_id:
-            return message, {
-                "error": "Veuillez sélectionner ou créer une conversation"
-            }, conversation_id
+            return "", state, conversation_id, [], "", gr.Markdown(visible=True, value="Veuillez sélectionner ou créer une conversation")
         
         if not message.strip():
-            return message, state, conversation_id
+            return "", state, conversation_id, [], "", gr.Markdown(visible=False)
         
         try:
             # Extraire seulement les IDs des listes de choix
@@ -182,11 +180,13 @@ def create_chat_interface(api_client):
             }
             messages.append(loading_message)
             
-            yield "", {
-                "messages": messages,
-                "current_conversation_id": conversation_id,
-                "error": None
-            }, conversation_id
+            updated_state = state.copy()
+            updated_state["messages"] = messages
+            updated_state["current_conversation_id"] = conversation_id
+            updated_state["error"] = None
+            
+            # Premier yield avec le message de chargement
+            yield "", updated_state, conversation_id, messages, "", gr.Markdown(visible=False)
             
             # Envoi du message à l'API
             response = api_client.send_message(
@@ -207,12 +207,16 @@ def create_chat_interface(api_client):
             # Obtenir les sources
             sources = response.get("sources", [])
             
-            yield "", {
-                "messages": messages,
-                "sources": sources,
-                "current_conversation_id": conversation_id,
-                "error": None
-            }, conversation_id
+            updated_state = state.copy()
+            updated_state["messages"] = messages
+            updated_state["sources"] = sources
+            updated_state["current_conversation_id"] = conversation_id
+            updated_state["error"] = None
+            
+            source_html = render_sources(sources)
+            
+            # Yield final avec la réponse complète
+            yield "", updated_state, conversation_id, messages, source_html, gr.Markdown(visible=False)
             
         except Exception as e:
             logger.error(f"Erreur lors de l'envoi du message: {e}")
@@ -227,11 +231,12 @@ def create_chat_interface(api_client):
             messages = [m for m in state.get("messages", []) if m.get("id") != -2]  # Suppression du message de chargement
             messages.append(error_message)
             
-            yield "", {
-                "messages": messages,
-                "current_conversation_id": conversation_id,
-                "error": str(e)
-            }, conversation_id
+            updated_state = state.copy()
+            updated_state["messages"] = messages
+            updated_state["current_conversation_id"] = conversation_id
+            updated_state["error"] = str(e)
+            
+            yield "", updated_state, conversation_id, messages, "", gr.Markdown(visible=True, value=str(e))
     
     # Création des composants UI
     with gr.Row():
@@ -263,15 +268,15 @@ def create_chat_interface(api_client):
             context_selector = create_context_selector()
         
         with gr.Column(scale=3):
-            # Zone de chat - adaptation pour Gradio 5.x
+            # Zone de chat - adaptation pour Gradio 5.x avec correction du type
             chat_box = gr.Chatbot(
                 label="Conversation",
                 height=500,
                 avatar_images=["👤", "🧠"],  # Utilisateur, Assistant
                 render=render_message,
                 show_label=False,
-                # bubble=True,  # désactivé pour compatibilité
-                show_copy_button=True  # nouvelle fonctionnalité de Gradio 5.x
+                show_copy_button=True,  # Nouvelle fonctionnalité Gradio 5.x
+                type="messages"  # Correction pour éviter l'avertissement de dépréciation
             )
             
             # Zone de saisie et bouton d'envoi
@@ -525,14 +530,14 @@ def create_chat_interface(api_client):
     context_selector["active_rags"].change(
         fn=lambda active_rags, conv_id: context_selector["handle_rag_change"](conv_id, active_rags, api_client),
         inputs=[context_selector["active_rags"], current_conversation_id],
-        outputs=[]
+        outputs=None  # Aucune sortie attendue
     )
-    
+
     # Activer/désactiver les notes
     context_selector["active_notes"].change(
         fn=lambda active_notes, conv_id: context_selector["handle_note_change"](conv_id, active_notes, api_client),
         inputs=[context_selector["active_notes"], current_conversation_id],
-        outputs=[]
+        outputs=None  # Aucune sortie attendue
     )
     
     return {
